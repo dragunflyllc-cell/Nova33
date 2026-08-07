@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dragunfly — Play</title>
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#023047">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand"><img src="/icons/icon.svg" alt=""> Dragunfly</div>
+      <div class="count"><span id="collection-count">0</span> caught</div>
+    </header>
+
+    <div class="view active" id="view-map">
+      <div id="map"></div>
+      <div id="loading"><p>Finding your location…</p><p class="meta">Allow location access to see nearby creatures.</p></div>
+    </div>
+
+    <div class="view" id="view-collection">
+      <div id="collection-list"></div>
+    </div>
+
+    <nav class="tabbar">
+      <button id="tab-map" class="active">Map</button>
+      <button id="tab-collection">Collection</button>
+    </nav>
+  </div>
+
+  <div class="modal" id="capture-modal">
+    <div class="sheet">
+      <div class="sheet-header">
+        <h2 id="capture-name">Creature</h2>
+        <button id="capture-close">&times;</button>
+      </div>
+      <span id="capture-rarity" class="rarity-badge"></span>
+      <p>Target altitude: <strong id="capture-alt-target"></strong></p>
+      <p id="capture-distance"></p>
+      <label for="capture-alt-input">Your drone's current altitude reading (ft)</label>
+      <input id="capture-alt-input" type="number" min="0" max="500">
+      <p id="capture-status"></p>
+      <button class="btn btn-primary" id="capture-btn">Attempt Capture</button>
+      <button class="btn btn-secondary" id="share-btn">Share catch</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/js/creatures.js"></script>
+  <script src="/js/geo.js"></script>
+  <script src="/js/game.js"></script>
+</body>
+</html>
