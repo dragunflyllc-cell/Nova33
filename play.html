@@ -15,12 +15,24 @@
   <div class="app">
     <header class="app-header">
       <div class="brand"><img src="/icons/icon.svg" alt=""> Dragunfly</div>
-      <div class="count"><span id="collection-count">0</span> caught</div>
+      <div class="header-actions">
+        <div class="count"><span id="collection-count">0</span> caught</div>
+      </div>
     </header>
 
     <div class="view active" id="view-map">
       <div id="map"></div>
       <div id="loading"><p>Finding your location…</p><p class="meta">Allow location access to see nearby creatures.</p></div>
+    </div>
+
+    <div class="view" id="view-radar">
+      <div class="radar-wrap">
+        <div class="radar-circle">
+          <div class="radar-arrow" id="radar-arrow">&#9650;</div>
+        </div>
+        <p id="radar-info">Point your phone flat and turn toward your drone.</p>
+        <button class="btn btn-primary" id="radar-capture-btn" style="display:none">Open capture</button>
+      </div>
     </div>
 
     <div class="view" id="view-collection">
@@ -29,6 +41,7 @@
 
     <nav class="tabbar">
       <button id="tab-map" class="active">Map</button>
+      <button id="tab-radar">Radar</button>
       <button id="tab-collection">Collection</button>
     </nav>
   </div>

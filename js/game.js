@@ -8,8 +8,11 @@ const STORAGE_KEY = "dragunfly_collection_v1";
 
 let map, playerMarker, playerLat, playerLng;
 const spawnMarkers = new Map();
+let currentSpawns = [];
 let activeSpawn = null;
 let watchId = null;
+let radarSpawn = null;
+let orientationActive = false;
 
 function loadCollection() {
   try {
@@ -62,6 +65,7 @@ function markerIcon(spawn, captured) {
 function refreshSpawns() {
   if (!playerLat) return;
   const spawns = getNearbySpawns(playerLat, playerLng);
+  currentSpawns = spawns;
   const captured = new Set(loadCollection().map((c) => c.uid));
 
   const seen = new Set();
@@ -212,21 +216,97 @@ function startLocationWatch() {
   });
 }
 
+// Nearest not-yet-caught spawn, used by the radar/compass view.
+function nearestUncapturedSpawn() {
+  if (!playerLat) return null;
+  const captured = new Set(loadCollection().map((c) => c.uid));
+  let best = null;
+  let bestDist = Infinity;
+  for (const spawn of currentSpawns) {
+    if (captured.has(spawn.uid)) continue;
+    const dist = haversineMeters(playerLat, playerLng, spawn.lat, spawn.lng);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = spawn;
+    }
+  }
+  return best ? { spawn: best, dist: bestDist } : null;
+}
+
+function enterRadar() {
+  const info = document.getElementById("radar-info");
+  const captureBtn = document.getElementById("radar-capture-btn");
+  const nearest = nearestUncapturedSpawn();
+  radarSpawn = nearest ? nearest.spawn : null;
+  captureBtn.style.display = "none";
+
+  if (!radarSpawn) {
+    info.textContent = "No creatures nearby right now — move around or check back tomorrow.";
+    return;
+  }
+  info.textContent = "Point your phone flat and turn toward your drone.";
+  captureBtn.onclick = () => {
+    switchTab("map");
+    openCapture(radarSpawn);
+  };
+  requestOrientationAccess();
+}
+
+function requestOrientationAccess() {
+  const DOE = window.DeviceOrientationEvent;
+  if (DOE && typeof DOE.requestPermission === "function") {
+    DOE.requestPermission()
+      .then((state) => {
+        if (state === "granted") attachOrientationListener();
+        else document.getElementById("radar-info").textContent =
+          "Compass access denied — enable motion & orientation access in your browser settings to use radar.";
+      })
+      .catch(() => {});
+  } else {
+    attachOrientationListener();
+  }
+}
+
+function attachOrientationListener() {
+  if (orientationActive) return;
+  orientationActive = true;
+  window.addEventListener("deviceorientationabsolute", onOrientation, true);
+  window.addEventListener("deviceorientation", onOrientation, true);
+}
+
+function onOrientation(event) {
+  if (!radarSpawn || !playerLat) return;
+  let heading = event.webkitCompassHeading; // iOS Safari: already true-north, no reversal needed
+  if (heading == null) {
+    if (event.alpha == null) return;
+    heading = (360 - event.alpha) % 360; // best-effort for browsers exposing raw alpha
+  }
+  const bearing = bearingDegrees(playerLat, playerLng, radarSpawn.lat, radarSpawn.lng);
+  const relative = ((bearing - heading) + 360) % 360;
+  document.getElementById("radar-arrow").style.transform = `rotate(${relative}deg)`;
+
+  const dist = haversineMeters(playerLat, playerLng, radarSpawn.lat, radarSpawn.lng);
+  document.getElementById("radar-info").textContent = `${radarSpawn.species.name} · ${Math.round(dist)}m away`;
+  document.getElementById("radar-capture-btn").style.display = dist <= CAPTURE_RADIUS_M ? "block" : "none";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   renderCollection();
   startLocationWatch();
   document.getElementById("capture-close").addEventListener("click", closeCapture);
   document.getElementById("capture-btn").addEventListener("click", attemptCapture);
   document.getElementById("tab-map").addEventListener("click", () => switchTab("map"));
+  document.getElementById("tab-radar").addEventListener("click", () => switchTab("radar"));
   document.getElementById("tab-collection").addEventListener("click", () => switchTab("collection"));
 });
 
 function switchTab(tab) {
-  document.getElementById("view-map").classList.toggle("active", tab === "map");
-  document.getElementById("view-collection").classList.toggle("active", tab === "collection");
-  document.getElementById("tab-map").classList.toggle("active", tab === "map");
-  document.getElementById("tab-collection").classList.toggle("active", tab === "collection");
+  ["map", "radar", "collection"].forEach((t) => {
+    document.getElementById(`view-${t}`).classList.toggle("active", t === tab);
+    document.getElementById(`tab-${t}`).classList.toggle("active", t === tab);
+  });
   if (tab === "map" && map) setTimeout(() => map.invalidateSize(), 50);
+  if (tab === "radar") enterRadar();
 }
 
 if ("serviceWorker" in navigator) {
