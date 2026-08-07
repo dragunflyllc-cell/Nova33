@@ -1,0 +1,268 @@
+//@version=6
+// =============================================================================
+// Tradeify Lightning $150K — NQ Opening Range Breakout w/ Prop-Firm Risk Wrapper
+// =============================================================================
+// Methodology: opening-range breakout with an ATR-scaled stop/target and a
+// prior-day trend filter, in the spirit of Zarattini & Aziz, "Can Day Trading
+// Really Be Profitable?" (SSRN, 2023) which backtested 5-min ORB w/ ATR stops
+// on TQQQ. That paper's numbers came from a leveraged Nasdaq-100 ETF, not NQ
+// futures, and from one historical sample — treat it as a reasonable starting
+// methodology, not a promise this configuration repeats those results.
+//
+// Every dollar figure under "Tradeify Lightning $150K Rules" below is a
+// best-effort value from public sources as of Aug 2026 and firms change these
+// often (Tradeify itself has published mid-year rule revisions before).
+// VERIFY every number against your current Tradeify Funded Trader Agreement
+// before you trust this script with a live funded account. Getting the
+// trailing-drawdown or daily-loss-limit number wrong defeats the entire point
+// of this risk wrapper.
+//
+// This script does not talk to your broker. It manages positions and risk
+// purely inside TradingView's strategy engine and fires alert_message JSON
+// on every order so you (or a webhook relay you configure) can mirror it to
+// your actual funded account. Run it on a 1-5 minute NQ1! or MNQ1! chart.
+// =============================================================================
+
+strategy("Tradeify NQ ORB + Risk Wrapper", shorttitle = "TDFY-NQ-ORB",
+     overlay = true, initial_capital = 150000, currency = currency.USD,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, calc_on_every_tick = true, process_orders_on_close = false,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 4.60,
+     slippage = 2, max_bars_back = 5000)
+
+// ---------------------------------------------------------------------------
+// Inputs — Tradeify Lightning $150K rules (VERIFY against your agreement)
+// ---------------------------------------------------------------------------
+grpRules = "Tradeify Lightning $150K Rules (verify these numbers yourself)"
+startingBalance   = input.float(150000, "Account Starting Balance ($)", group = grpRules)
+dailyLossLimit    = input.float(3750,   "Daily Loss Limit ($)", group = grpRules, tooltip = "Best-effort figure for Lightning $150K as of Aug 2026. Confirm in your Tradeify agreement.")
+trailingDrawdown  = input.float(6000,   "EOD Trailing Max Drawdown ($)", group = grpRules, tooltip = "Best-effort figure for Lightning $150K. Tradeify trails this off END-OF-DAY balance, not intraday equity.")
+floorLocksAtStart = input.bool(false,   "Trailing floor stops rising once it reaches starting balance", group = grpRules, tooltip = "Some prop-firm plans freeze the drawdown floor once it reaches the starting balance ('breakeven lock'). Unconfirmed for Lightning — leave off unless you've verified it, since leaving it off is the more conservative assumption.")
+dllSafetyBuffer   = input.float(250,    "Stop trading this much BEFORE hitting the Daily Loss Limit ($)", group = grpRules)
+ddSafetyBuffer    = input.float(300,    "Stop trading this much ABOVE the trailing drawdown floor ($)", group = grpRules)
+maxContracts      = input.int(3, "Max contracts open at once (minis; verify Tradeify's cap for your account)", minval = 1, group = grpRules)
+
+grpGoal = "Weekly Goal"
+weeklyProfitTarget = input.float(1000, "Weekly profit target ($)", group = grpGoal)
+weeklyLockAction    = input.string("Halve size after target", "Once weekly target is hit", options = ["Do nothing", "Halve size after target", "Stop trading for the week"], group = grpGoal)
+consistencyCapPct   = input.float(30, "Consistency-rule warning threshold (% of weekly profit from one day)", group = grpGoal, tooltip = "Informational only — the script cannot legally 'refuse' a winning trade. This just warns you in the info table so a single day doesn't blow your payout eligibility.")
+
+grpSession = "Session / Opening Range"
+tz              = input.string("America/New_York", "Timezone", group = grpSession)
+mainSession     = input.session("0930-1600", "Regular trading session (RTH)", group = grpSession)
+orSession1      = input.session("0930-0945", "Opening range #1 (AM)", group = grpSession)
+useSecondOR     = input.bool(true, "Also trade a 2nd opening range", group = grpSession)
+orSession2      = input.session("1330-1345", "Opening range #2 (PM)", group = grpSession)
+flattenTime     = input.session("1550-1600", "Flatten-everything window (forces flat before close)", group = grpSession)
+
+grpStrat = "Strategy Parameters"
+atrLen          = input.int(14, "Daily ATR length", group = grpStrat)
+stopAtrMult     = input.float(0.40, "Stop = ATR x", step = 0.05, group = grpStrat)
+targetAtrMult   = input.float(0.55, "Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets an ORB system clear 50% win rate. Widening this trades win rate for payoff — backtest before changing.")
+useTrendFilter  = input.bool(true, "Only trade with the daily trend (prior close vs 20d SMA)", group = grpStrat)
+trendSmaLen     = input.int(20, "Trend filter SMA length (daily)", group = grpStrat)
+riskPctOfBuffer = input.float(8, "Risk per trade, as % of (equity - drawdown floor)", step = 0.5, group = grpStrat, tooltip = "Sized off distance-to-drawdown-floor, not headline balance — that distance is the capital you can actually afford to lose.")
+maxDllSharePerTrade = input.float(40, "Cap: never risk more than this % of TODAY's remaining DLL on one trade", step = 5, group = grpStrat)
+
+// ---------------------------------------------------------------------------
+// Session / opening range tracking
+// ---------------------------------------------------------------------------
+inMainSession = not na(time(timeframe.period, mainSession, tz))
+inOR1         = not na(time(timeframe.period, orSession1, tz))
+inOR2         = useSecondOR and not na(time(timeframe.period, orSession2, tz))
+inFlattenWin  = not na(time(timeframe.period, flattenTime, tz))
+
+newDayBar = na(time("D")[1]) or time("D") != time("D")[1]
+
+var float or1High = na
+var float or1Low  = na
+var float or2High = na
+var float or2Low  = na
+var bool  or1Done = false
+var bool  or2Done = false
+var bool  or1Traded = false
+var bool  or2Traded = false
+
+if newDayBar
+    or1High := na
+    or1Low  := na
+    or2High := na
+    or2Low  := na
+    or1Done := false
+    or2Done := false
+    or1Traded := false
+    or2Traded := false
+
+if inOR1
+    or1High := na(or1High) ? high : math.max(or1High, high)
+    or1Low  := na(or1Low)  ? low  : math.min(or1Low, low)
+or1JustEnded = inOR1[1] and not inOR1
+if or1JustEnded
+    or1Done := true
+
+if inOR2
+    or2High := na(or2High) ? high : math.max(or2High, high)
+    or2Low  := na(or2Low)  ? low  : math.min(or2Low, low)
+or2JustEnded = inOR2[1] and not inOR2
+if or2JustEnded
+    or2Done := true
+
+// ---------------------------------------------------------------------------
+// Daily trend filter — prior daily close vs its own 20-day SMA, non-repainting
+// ---------------------------------------------------------------------------
+dailyClose = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_off)
+dailySma   = request.security(syminfo.tickerid, "D", ta.sma(close, trendSmaLen)[1], lookahead = barmerge.lookahead_off)
+dailyAtr   = request.security(syminfo.tickerid, "D", ta.atr(atrLen)[1], lookahead = barmerge.lookahead_off)
+
+trendUp   = dailyClose > dailySma
+trendDown = dailyClose < dailySma
+allowLong  = not useTrendFilter or trendUp
+allowShort = not useTrendFilter or trendDown
+
+// ---------------------------------------------------------------------------
+// Account bookkeeping — daily loss limit, EOD trailing drawdown, weekly goal
+// ---------------------------------------------------------------------------
+var float dayStartNetProfit = 0.0
+if newDayBar
+    dayStartNetProfit := strategy.netprofit
+
+dayPnL = (strategy.netprofit - dayStartNetProfit) + strategy.openprofit
+dllRemaining = dailyLossLimit - math.max(0.0, -dayPnL)
+
+var float eodBalanceHigh = startingBalance
+// Recompute EOD balance whenever we cross into a new day, using the PRIOR day's
+// closing account balance (realized P&L only — EOD, not intraday, per Tradeify's
+// stated methodology for Lightning accounts).
+if newDayBar
+    priorDayBalance = startingBalance + dayStartNetProfit
+    eodBalanceHigh := math.max(eodBalanceHigh, priorDayBalance)
+
+trailingFloor = (floorLocksAtStart and eodBalanceHigh >= startingBalance)
+     ? startingBalance
+     : eodBalanceHigh - trailingDrawdown
+
+currentEquity = startingBalance + strategy.netprofit + strategy.openprofit
+distanceToFloor = currentEquity - trailingFloor
+
+var float weekStartNetProfit = 0.0
+weekNum = weekofyear(time)
+newWeekBar = na(weekNum[1]) or weekNum != weekNum[1]
+if newWeekBar
+    weekStartNetProfit := strategy.netprofit
+weekPnL = (strategy.netprofit - weekStartNetProfit) + strategy.openprofit
+
+var float bestSingleDayThisWeek = 0.0
+if newWeekBar
+    bestSingleDayThisWeek := 0.0
+if newDayBar and not newWeekBar
+    // dayPnL[1] is yesterday's final day-PnL. Skip this on the first day of a
+    // new week so Friday's number doesn't get attributed to the new week.
+    bestSingleDayThisWeek := math.max(bestSingleDayThisWeek, dayPnL[1])
+consistencyPctNow = weekPnL > 0 ? (bestSingleDayThisWeek / weekPnL) * 100 : 0.0
+
+weeklyTargetHit = weekPnL >= weeklyProfitTarget
+sizeMultiplier = weeklyLockAction == "Halve size after target" and weeklyTargetHit ? 0.5 : 1.0
+weeklyHalt = weeklyLockAction == "Stop trading for the week" and weeklyTargetHit
+
+// ---------------------------------------------------------------------------
+// Hard risk gates — these override everything else
+// ---------------------------------------------------------------------------
+dllBreached = dayPnL <= -(dailyLossLimit - dllSafetyBuffer)
+ddBreached  = currentEquity <= (trailingFloor + ddSafetyBuffer)
+riskHalt    = dllBreached or ddBreached or weeklyHalt
+
+if riskHalt and strategy.position_size != 0
+    strategy.close_all(comment = "RISK HALT", alert_message = '{"action":"FLATTEN","reason":"risk_halt","symbol":"' + syminfo.ticker + '"}')
+
+if inFlattenWin and strategy.position_size != 0
+    strategy.close_all(comment = "EOD flatten", alert_message = '{"action":"FLATTEN","reason":"session_end","symbol":"' + syminfo.ticker + '"}')
+
+canTrade = inMainSession and not riskHalt and not inFlattenWin and dllRemaining > 0
+
+// ---------------------------------------------------------------------------
+// Position sizing — off distance-to-drawdown-floor AND today's remaining DLL,
+// never off the headline $150K balance
+// ---------------------------------------------------------------------------
+stopDistancePts = dailyAtr * stopAtrMult
+targetDistancePts = dailyAtr * targetAtrMult
+pointValue = syminfo.pointvalue
+
+riskDollarsFromFloor = math.max(0.0, distanceToFloor) * (riskPctOfBuffer / 100)
+riskDollarsFromDll   = math.max(0.0, dllRemaining) * (maxDllSharePerTrade / 100)
+riskDollars = math.min(riskDollarsFromFloor, riskDollarsFromDll) * sizeMultiplier
+
+contractsRaw = stopDistancePts > 0 and pointValue > 0 ? math.floor(riskDollars / (stopDistancePts * pointValue)) : 0
+contracts = int(math.max(0, math.min(contractsRaw, maxContracts)))
+
+// ---------------------------------------------------------------------------
+// Entries — breakout of the opening range, in the direction of the daily trend
+// ---------------------------------------------------------------------------
+tickBuf = syminfo.mintick * 2
+
+if canTrade and or1Done and not or1Traded and contracts > 0
+    if allowLong and not na(or1High)
+        strategy.entry("OR1-Long", strategy.long, qty = contracts, stop = or1High + tickBuf,
+             alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+        or1Traded := true
+    if allowShort and not na(or1Low)
+        strategy.entry("OR1-Short", strategy.short, qty = contracts, stop = or1Low - tickBuf,
+             alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1Low - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+        or1Traded := true
+
+if canTrade and useSecondOR and or2Done and not or2Traded and contracts > 0
+    if allowLong and not na(or2High)
+        strategy.entry("OR2-Long", strategy.long, qty = contracts, stop = or2High + tickBuf,
+             alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or2High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+        or2Traded := true
+    if allowShort and not na(or2Low)
+        strategy.entry("OR2-Short", strategy.short, qty = contracts, stop = or2Low - tickBuf,
+             alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or2Low - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+        or2Traded := true
+
+// Cancel unfilled stop orders once the flatten window arrives so nothing
+// triggers into an overnight/next-day position.
+if inFlattenWin
+    strategy.cancel("OR1-Long")
+    strategy.cancel("OR1-Short")
+    strategy.cancel("OR2-Long")
+    strategy.cancel("OR2-Short")
+
+// ---------------------------------------------------------------------------
+// Exits — ATR stop/target on every entry
+// ---------------------------------------------------------------------------
+strategy.exit("X-OR1-L", "OR1-Long", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+strategy.exit("X-OR1-S", "OR1-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+strategy.exit("X-OR2-L", "OR2-Long", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+strategy.exit("X-OR2-S", "OR2-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+
+// ---------------------------------------------------------------------------
+// Plots / dashboard
+// ---------------------------------------------------------------------------
+plot(or1Done ? or1High : na, "OR1 High", color = color.new(color.teal, 0), style = plot.style_linebr)
+plot(or1Done ? or1Low  : na, "OR1 Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
+plot(useSecondOR and or2Done ? or2High : na, "OR2 High", color = color.new(color.blue, 0), style = plot.style_linebr)
+plot(useSecondOR and or2Done ? or2Low  : na, "OR2 Low",  color = color.new(color.orange, 0), style = plot.style_linebr)
+bgcolor(inMainSession and not riskHalt ? color.new(color.green, 95) : riskHalt ? color.new(color.red, 90) : na)
+
+if barstate.islast
+    var table dash = table.new(position.top_right, 2, 8, border_width = 1)
+    table.cell(dash, 0, 0, "Metric", bgcolor = color.gray, text_color = color.white)
+    table.cell(dash, 1, 0, "Value", bgcolor = color.gray, text_color = color.white)
+    table.cell(dash, 0, 1, "Equity")
+    table.cell(dash, 1, 1, str.tostring(currentEquity, "#.##"))
+    table.cell(dash, 0, 2, "Trailing floor")
+    table.cell(dash, 1, 2, str.tostring(trailingFloor, "#.##"))
+    table.cell(dash, 0, 3, "Distance to floor")
+    table.cell(dash, 1, 3, str.tostring(distanceToFloor, "#.##"), text_color = distanceToFloor < ddSafetyBuffer * 2 ? color.red : color.black)
+    table.cell(dash, 0, 4, "Today's P&L / DLL left")
+    table.cell(dash, 1, 4, str.tostring(dayPnL, "#.##") + " / " + str.tostring(dllRemaining, "#.##"), text_color = dllRemaining < dllSafetyBuffer * 2 ? color.red : color.black)
+    table.cell(dash, 0, 5, "Week P&L / Goal")
+    table.cell(dash, 1, 5, str.tostring(weekPnL, "#.##") + " / " + str.tostring(weeklyProfitTarget, "#.##"), text_color = weeklyTargetHit ? color.green : color.black)
+    table.cell(dash, 0, 6, "Consistency % (best day / week)")
+    table.cell(dash, 1, 6, str.tostring(consistencyPctNow, "#.#") + "%", text_color = consistencyPctNow > consistencyCapPct ? color.red : color.black)
+    table.cell(dash, 0, 7, "Next size (contracts)")
+    table.cell(dash, 1, 7, str.tostring(contracts))
