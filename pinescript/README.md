@@ -3,6 +3,16 @@
 Pine Script v6 strategy for trading NQ (or MNQ) on TradingView, built around
 a Tradeify **Lightning Funded $150K** account. File: `tradeify-nq-orb-strategy.pine`.
 
+**Run this on a 5-minute chart.** A real 1-year backtest on a 1-minute
+chart came back net-negative (-1.44%) despite the underlying market rallying
+19.6% over the same period and the trend filter correctly going long 71/80
+trades — average winners ($173) were smaller than average losers ($248)
+because the channel lookback was reacting to 1-minute noise instead of real
+range structure. `channelMinutes`/`cooldownMinutes` are now specified in
+minutes and converted to bars for whatever timeframe you're on, so this
+can't silently break again the same way — but 5-minute is still the
+recommended chart for meaningful breakout structure vs. noise.
+
 ## Before you risk real money on this: verify the numbers
 
 I could not reach `help.tradeify.co` directly from this environment (network
@@ -40,13 +50,14 @@ in trading, from me or anyone else.
 - **Trade mode (input): "Continuous Range Breakout" (default) vs "Opening
   Range Breakout (2x/day)".** The original design only traded two fixed
   15-minute windows a day and, in practice, that starved it of opportunities
-  (one trade in 90 days in testing). The default is now a rolling N-bar
-  channel breakout (`channelLen`, default 12 bars) that re-arms itself all
-  session long: after each trade closes and a cooldown (`cooldownBars`,
-  default 6) passes, it re-quotes a fresh breakout level off the trailing
-  high/low and waits for the next one. Same lineage as the old Turtle
-  Trading Donchian-channel system. The old fixed-window ORB mode is still
-  available as a toggle if you want to compare the two in Strategy Tester.
+  (one trade in 90 days in testing). The default is now a rolling channel
+  breakout (`channelMinutes`, default 60 real minutes, converted to bars for
+  your chart's timeframe) that re-arms itself all session long: after each
+  trade closes and a cooldown (`cooldownMinutes`, default 30) passes, it
+  re-quotes a fresh breakout level off the trailing high/low and waits for
+  the next one. Same lineage as the old Turtle Trading Donchian-channel
+  system. The old fixed-window ORB mode is still available as a toggle if
+  you want to compare the two in Strategy Tester.
 - Only trades in the direction of the prior day's close vs. its 20-day SMA
   (toggle-able). This is what keeps win rate defensible above 50%: it skips
   counter-trend breakouts, which is where most ORB false-breakout losses
@@ -137,14 +148,41 @@ for granular, risk-managed sizing on a $150K account with a $3,750 DLL.
 
 ## Suggested workflow
 
-1. Paste into TradingView Pine Editor on an `NQ1!` or `MNQ1!` chart, 1-5 min
-   timeframe. Fix any compile errors TradingView flags (I can't compile
-   Pine here, so treat this as a careful draft, not a guaranteed-clean
-   build).
+1. Paste into TradingView Pine Editor on an `MNQ1!` chart, **5-minute**
+   timeframe (see the note at the top of this file on why 1-minute produced
+   a losing backtest). Fix any compile errors TradingView flags (I can't
+   compile Pine here, so treat this as a careful draft, not a
+   guaranteed-clean build).
 2. Confirm every number in the Tradeify Lightning $150K Rules input group
    against your actual account agreement.
-3. Run Strategy Tester over at least 1-2 years of NQ data. Check win rate,
-   max drawdown, and average trades/week against your $1k/week goal — tune
-   `stopAtrMult`/`targetAtrMult`/`riskPctOfBuffer` from there.
+3. Run Strategy Tester over at least 1-2 years of data. Check net profit,
+   profit factor, and max drawdown first — win rate only matters relative
+   to average-win/average-loss, not on its own. Tune
+   `stopAtrMult`/`trailActivateAtrMult`/`trailOffsetAtrMult`/`riskPctOfBuffer`
+   from there.
 4. Paper trade (or trade a demo/eval account) for a few weeks before
    pointing it at a live funded account, even semi-automated.
+
+## Change log (what's been tried and why)
+
+For continuity across sessions — three real backtests have driven this
+design so far:
+
+1. **Fixed two-window ORB, full-size NQ1!**: 0-1 trades in 90 days.
+   Diagnosed as position sizing rounding to 0 contracts — NQ1!'s $20/point
+   value makes a full contract's risk close to the entire daily loss limit.
+   Fix: switched to MNQ1! ($2/point).
+2. **Continuous mode added, fixed 0.55x ATR target, 1-minute chart,
+   12-bar/6-bar channel+cooldown**: still too few trades reported.
+3. **Real 1-year backtest, MNQ1!, 1-minute chart** (the first data actually
+   seen): 80 trades, 52.5% win rate, but net -$2,158 (-1.44%) against a
+   +19.6% buy-and-hold — avg win $173 < avg loss $248. Diagnosed as the
+   12-minute channel lookback being pure 1-minute noise, causing shallow
+   trailing-stop exits instead of real trend capture. Fix: made
+   `channelMinutes`/`cooldownMinutes` timeframe-independent (converted to
+   bars at run time) and recommended 5-minute chart.
+
+Next real backtest should confirm whether the 5-minute / minutes-based fix
+actually restores the intended "big winners pay for many small losses"
+trend-following shape — until then, treat the profit-factor/avg-win-loss
+numbers as unresolved, not fixed.

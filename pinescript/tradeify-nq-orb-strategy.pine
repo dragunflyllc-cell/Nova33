@@ -57,8 +57,10 @@ flattenTime     = input.session("1550-1600", "Flatten-everything window (forces 
 
 grpStrat = "Strategy Parameters"
 tradeMode       = input.string("Continuous Range Breakout (more trades)", "Trade mode", options = ["Continuous Range Breakout (more trades)", "Opening Range Breakout (2x/day)"], group = grpStrat, tooltip = "Continuous mode re-arms a rolling breakout level all session long instead of only trading two fixed 15-minute windows — far more opportunities to fire.")
-channelLen      = input.int(12, "Continuous mode: breakout channel length (bars)", minval = 2, group = grpStrat, tooltip = "Rolling N-bar high/low used as the breakout trigger, recalculated every bar. Shorter = more signals but noisier; longer = fewer, cleaner signals.")
-cooldownBars    = input.int(6, "Continuous mode: cooldown bars after a trade closes", minval = 0, group = grpStrat, tooltip = "Bars to wait before re-arming a new breakout after the last trade closes, to avoid immediately whipsawing back in.")
+channelMinutes  = input.int(60, "Continuous mode: breakout channel lookback (MINUTES, not bars)", minval = 5, group = grpStrat, tooltip = "Specified in minutes and converted to bars for whatever chart timeframe you're on, so a 1-min and 5-min chart use the same real lookback window instead of silently becoming 5x noisier on the faster chart. Shorter = more signals but noisier; longer = fewer, cleaner signals.")
+cooldownMinutes = input.int(30, "Continuous mode: cooldown after a trade closes (MINUTES, not bars)", minval = 0, group = grpStrat, tooltip = "Also timeframe-independent, same reasoning as the channel lookback above.")
+channelLen      = int(math.max(2, math.round(channelMinutes / timeframe.multiplier)))
+cooldownBars    = int(math.max(0, math.round(cooldownMinutes / timeframe.multiplier)))
 atrLen          = input.int(14, "Daily ATR length", group = grpStrat)
 stopAtrMult     = input.float(0.40, "Stop = ATR x", step = 0.05, group = grpStrat)
 targetAtrMult   = input.float(0.55, "ORB mode only: Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Only used by 'Opening Range Breakout (2x/day)' mode. Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets that mode clear 50% win rate.")
