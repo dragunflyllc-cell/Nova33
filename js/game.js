@@ -386,10 +386,41 @@ function onOrientation(event) {
   document.getElementById("radar-capture-btn").style.display = dist <= CAPTURE_RADIUS_M ? "block" : "none";
 }
 
+function enterTerritory() {
+  const disabled = document.getElementById("territory-disabled");
+  const panel = document.getElementById("territory-panel");
+  if (!window.TERRITORY_ENABLED) {
+    disabled.style.display = "flex";
+    panel.style.display = "none";
+    return;
+  }
+  disabled.style.display = "none";
+  panel.style.display = "block";
+  if (playerLat && window.Territory) {
+    window.Territory.refreshTerritoryTiles(playerLat, playerLng);
+    setTimeout(() => window.Territory.invalidateSize(), 50);
+  }
+}
+
+async function attemptClaim() {
+  if (!window.Territory || !playerLat) return;
+  const status = document.getElementById("territory-status");
+  status.textContent = "Claiming…";
+  const result = await window.Territory.claimSelectedTile(playerLat, playerLng);
+  status.textContent = result.ok ? "Claimed! It's yours." : result.reason;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   renderCollection();
   renderDataTab();
   startLocationWatch();
+  if (window.Territory) window.Territory.initTerritory();
+  window.addEventListener("territory-tile-selected", (e) => {
+    document.getElementById("territory-status").textContent =
+      `Selected tile at ${e.detail.lat.toFixed(5)}, ${e.detail.lng.toFixed(5)} — fly your drone there and claim it.`;
+  });
+  document.getElementById("territory-claim-btn").addEventListener("click", attemptClaim);
+  document.getElementById("tab-territory").addEventListener("click", () => switchTab("territory"));
   document.getElementById("capture-close").addEventListener("click", closeCapture);
   document.getElementById("capture-btn").addEventListener("click", attemptCapture);
   document.getElementById("tab-map").addEventListener("click", () => switchTab("map"));
@@ -408,12 +439,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function switchTab(tab) {
-  ["map", "radar", "collection", "data"].forEach((t) => {
+  ["map", "radar", "territory", "collection", "data"].forEach((t) => {
     document.getElementById(`view-${t}`).classList.toggle("active", t === tab);
     document.getElementById(`tab-${t}`).classList.toggle("active", t === tab);
   });
   if (tab === "map" && map) setTimeout(() => map.invalidateSize(), 50);
   if (tab === "radar") enterRadar();
+  if (tab === "territory") enterTerritory();
   if (tab === "data") renderDataTab();
 }
 
