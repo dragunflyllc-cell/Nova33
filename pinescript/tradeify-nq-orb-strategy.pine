@@ -71,6 +71,16 @@ trendSmaLen     = input.int(20, "Trend filter SMA length (daily)", group = grpSt
 riskPctOfBuffer = input.float(8, "Risk per trade, as % of (equity - drawdown floor)", step = 0.5, group = grpStrat, tooltip = "Sized off distance-to-drawdown-floor, not headline balance — that distance is the capital you can actually afford to lose.")
 maxDllSharePerTrade = input.float(40, "Cap: never risk more than this % of TODAY's remaining DLL on one trade", step = 5, group = grpStrat)
 
+grpRegime = "Regime Filter (experimental — continuous mode only)"
+regimeMode      = input.string("None", "Only take continuous-mode breakouts when...", options = ["None", "ADX Trend Strength", "Volatility Squeeze"], group = grpRegime, tooltip = "Experimental: the last real backtest suggested chop whipsaw (breakouts firing in non-trending conditions) as a likely loss source. These filters try to only trade when a breakout is more likely to be real. Untested — that's what this run is for.")
+adxLen          = input.int(14, "ADX length", group = grpRegime)
+adxThreshold    = input.float(20, "ADX Trend Strength: minimum ADX to allow entries", group = grpRegime, tooltip = "Higher = stricter (fewer, more trending-only entries). Below ~20 is commonly considered non-trending/choppy.")
+bbLen           = input.int(20, "Volatility Squeeze: Bollinger Band length", group = grpRegime)
+bbMult          = input.float(2.0, "Volatility Squeeze: Bollinger Band multiplier", group = grpRegime)
+squeezeLookbackMinutes = input.int(120, "Volatility Squeeze: lookback for 'recent low width' (MINUTES)", minval = 5, group = grpRegime)
+squeezeTolerancePct    = input.float(15, "Volatility Squeeze: allow width within this % of the recent low", step = 5, group = grpRegime)
+squeezeLookbackBars = int(math.max(2, math.round(squeezeLookbackMinutes / timeframe.multiplier)))
+
 isContinuousMode = tradeMode == "Continuous Range Breakout (more trades)"
 
 // ---------------------------------------------------------------------------
@@ -127,6 +137,21 @@ trendUp   = dailyClose > dailySma
 trendDown = dailyClose < dailySma
 allowLong  = not useTrendFilter or trendUp
 allowShort = not useTrendFilter or trendDown
+
+// ---------------------------------------------------------------------------
+// Regime filter (experimental) — only take continuous-mode breakouts when
+// the market looks like it's actually trending / just left a compression.
+// ---------------------------------------------------------------------------
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+regimeOkAdx = adxVal > adxThreshold
+
+bbBasis = ta.sma(close, bbLen)
+bbDev   = bbMult * ta.stdev(close, bbLen)
+bbWidth = bbBasis != 0 ? (2 * bbDev) / bbBasis : na
+bbWidthRecentLow = ta.lowest(bbWidth, squeezeLookbackBars)
+regimeOkSqueeze = not na(bbWidth) and bbWidth <= bbWidthRecentLow * (1 + squeezeTolerancePct / 100)
+
+regimeOk = regimeMode == "ADX Trend Strength" ? regimeOkAdx : regimeMode == "Volatility Squeeze" ? regimeOkSqueeze : true
 
 // ---------------------------------------------------------------------------
 // Account bookkeeping — daily loss limit, EOD trailing drawdown, weekly goal
@@ -245,7 +270,7 @@ if not isContinuousMode and canTrade and useSecondOR and or2Done and not or2Trad
 // Continuous mode: keep re-quoting the current rolling channel as long as
 // we're flat and the cooldown has cleared. Pine updates the pending stop
 // order's price in place each time this is called with the same order id.
-if isContinuousMode and canTrade and flatPosition and cooldownOk and contracts > 0
+if isContinuousMode and canTrade and flatPosition and cooldownOk and regimeOk and contracts > 0
     if allowLong and not na(chHigh)
         strategy.entry("C-Long", strategy.long, qty = contracts, stop = chHigh + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chHigh + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"trail_activate_pts":' + str.tostring(trailActivatePts) + ',"trail_offset_pts":' + str.tostring(trailOffsetPts) + '}')
@@ -305,11 +330,13 @@ plot(isContinuousMode ? chLow  : na, "Channel Low",  color = color.new(color.mar
 bgcolor(inMainSession and not riskHalt ? color.new(color.green, 95) : riskHalt ? color.new(color.red, 90) : na)
 
 if barstate.islast
-    var table dash = table.new(position.top_right, 2, 9, border_width = 1)
+    var table dash = table.new(position.top_right, 2, 10, border_width = 1)
     table.cell(dash, 0, 0, "Metric", bgcolor = color.gray, text_color = color.white)
     table.cell(dash, 1, 0, "Value", bgcolor = color.gray, text_color = color.white)
     table.cell(dash, 0, 8, "Mode / cooldown ok")
     table.cell(dash, 1, 8, (isContinuousMode ? "Continuous" : "ORB 2x/day") + " / " + str.tostring(cooldownOk))
+    table.cell(dash, 0, 9, "Regime filter / ADX")
+    table.cell(dash, 1, 9, regimeMode + " / " + str.tostring(regimeOk) + " (ADX " + str.tostring(adxVal, "#.#") + ")")
     table.cell(dash, 0, 1, "Equity")
     table.cell(dash, 1, 1, str.tostring(currentEquity, "#.##"))
     table.cell(dash, 0, 2, "Trailing floor")

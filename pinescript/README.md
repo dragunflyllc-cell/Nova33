@@ -163,6 +163,28 @@ for granular, risk-managed sizing on a $150K account with a $3,750 DLL.
 4. Paper trade (or trade a demo/eval account) for a few weeks before
    pointing it at a live funded account, even semi-automated.
 
+## Regime filter (experimental) — testing whether chop was the real problem
+
+The 1-minute backtest's loss pattern (avg win < avg loss despite 52.5% win
+rate) looks like **chop whipsaw**: a breakout system firing in conditions
+that aren't actually trending, catching small reversals instead of real
+moves. Two experimental filters were added to test this directly, both
+gating continuous-mode entries only:
+
+- **ADX Trend Strength** — only enters when ADX is above a threshold
+  (default 20), i.e. only trades breakouts when the market is measurably
+  trending, not ranging.
+- **Volatility Squeeze** — only enters when Bollinger Band width is near
+  its own recent low, i.e. only trades breakouts that emerge from a real
+  volatility compression rather than already-noisy conditions.
+
+Both are off by default (`regimeMode = "None"`) so you can A/B/C test all
+three (None vs ADX vs Squeeze) against the same 5-minute/1-year data in one
+sitting — same risk wrapper, same entries/exits, only the regime gate
+changes. This is genuinely untested; it's a reasoned hypothesis about the
+loss source, not a proven fix. Whichever produces the best net
+profit/profit factor is the one to keep tuning.
+
 ## Change log (what's been tried and why)
 
 For continuity across sessions — three real backtests have driven this
@@ -182,7 +204,13 @@ design so far:
    `channelMinutes`/`cooldownMinutes` timeframe-independent (converted to
    bars at run time) and recommended 5-minute chart.
 
-Next real backtest should confirm whether the 5-minute / minutes-based fix
-actually restores the intended "big winners pay for many small losses"
-trend-following shape — until then, treat the profit-factor/avg-win-loss
-numbers as unresolved, not fixed.
+4. **Regime filter added (ADX Trend Strength / Volatility Squeeze), still
+   untested**: hypothesis that chop whipsaw, not the trend-following logic
+   itself, explains the round-3 loss. Next backtest should compare None vs
+   ADX vs Squeeze on the 5-minute chart to see which (if any) actually
+   improves profit factor.
+
+Next real backtest should confirm whether the 5-minute / minutes-based fix,
+with or without a regime filter, actually restores the intended "big
+winners pay for many small losses" trend-following shape — until then,
+treat the profit-factor/avg-win-loss numbers as unresolved, not fixed.
