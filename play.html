@@ -36,6 +36,26 @@
       </div>
     </div>
 
+    <div class="view" id="view-live">
+      <div id="live-setup" class="data-wrap">
+        <div class="data-card">
+          <h3>Go live to play in AR</h3>
+          <p>Start a livestream to YouTube from your <strong>drone's own app</strong> (DJI Fly, Autel Explorer, etc. — set it to <strong>Unlisted</strong>, not Public), then paste the link here. Dragunfly overlays nearby creatures right on your live video.</p>
+          <p style="font-size:0.82rem;color:#ffffff99">Positioning uses your phone's compass, not real computer vision on the footage — it's an approximation, not pixel-perfect tracking.</p>
+          <input type="text" id="live-url-input" placeholder="Paste your YouTube Live URL" style="width:100%;padding:0.7rem;border-radius:10px;border:2px solid #ffffff22;background:var(--navy);color:white;font-size:0.95rem">
+          <button class="btn btn-primary" id="live-start-btn" style="margin-top:0.75rem;width:100%">Go Live</button>
+          <p id="live-setup-status" style="font-size:0.85rem;color:#ffffffaa;margin-top:0.5rem"></p>
+        </div>
+      </div>
+      <div id="live-stage" style="display:none; height:100%">
+        <div id="live-video-wrap">
+          <iframe id="live-iframe" src="" allow="autoplay; encrypted-media" allowfullscreen frameborder="0"></iframe>
+          <div id="live-ar-layer"></div>
+        </div>
+        <button class="btn btn-secondary" id="live-end-btn">End live session</button>
+      </div>
+    </div>
+
     <div class="view" id="view-collection">
       <div id="collection-list"></div>
     </div>
@@ -78,6 +98,7 @@
     <nav class="tabbar">
       <button id="tab-map" class="active">Map</button>
       <button id="tab-radar">Radar</button>
+      <button id="tab-live">Live</button>
       <button id="tab-territory">Territory</button>
       <button id="tab-collection">Collection</button>
       <button id="tab-data">Data</button>

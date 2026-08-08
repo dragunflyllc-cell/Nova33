@@ -1,13 +1,17 @@
 // Dragunfly — geo helpers. Pure client-side, browser Geolocation API only.
 
 const EARTH_RADIUS_M = 6371000;
-const GRID_SIZE_DEG = 0.0018; // ~200m cells
-const SPAWN_SEARCH_RADIUS_CELLS = 2; // scan a 5x5 grid around the player
-// Kept conservative on purpose: a small consumer drone is easy to keep in
-// unaided visual line of sight within this range in open conditions. The
-// game should never be the reason someone flies further than they can
-// clearly see their aircraft.
+// Spawns are generated directly around the player's own position (not
+// snapped to a fixed map grid), so they're always close enough to keep a
+// small drone in unaided visual line of sight — the game should never be
+// the reason someone flies further than they can clearly see their aircraft.
+const MIN_SPAWN_DISTANCE_M = 20;
 const MAX_SPAWN_DISTANCE_M = 180;
+const SPAWN_SLOTS = 10;
+const SPAWN_CHANCE = 0.55;
+// Players within the same ~50m bucket see the same spawns today, so two
+// pilots standing near each other see a shared "world" without a backend.
+const BUCKET_SIZE_DEG = 0.00045;
 
 function toRad(deg) {
   return (deg * Math.PI) / 180;
@@ -30,49 +34,53 @@ function bearingDegrees(lat1, lng1, lat2, lng2) {
   return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
 }
 
-function gridCell(lat, lng) {
-  return [Math.floor(lat / GRID_SIZE_DEG), Math.floor(lng / GRID_SIZE_DEG)];
+// Destination point given a start, bearing, and distance (standard
+// spherical-earth formula — plenty accurate at these short ranges).
+function destinationPoint(lat, lng, bearingDeg, distanceM) {
+  const delta = distanceM / EARTH_RADIUS_M;
+  const theta = toRad(bearingDeg);
+  const phi1 = toRad(lat);
+  const lambda1 = toRad(lng);
+
+  const phi2 = Math.asin(
+    Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta)
+  );
+  const lambda2 =
+    lambda1 +
+    Math.atan2(
+      Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
+      Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2)
+    );
+
+  return { lat: (phi2 * 180) / Math.PI, lng: (lambda2 * 180) / Math.PI };
 }
 
-// Generate the deterministic spawn (if any) for a single grid cell.
-function spawnForCell(cellLat, cellLng, seed) {
-  const key = `${cellLat},${cellLng},${seed}`;
-  const h = hashString(key);
-  const spawnRoll = (h % 1000) / 1000; // 0..1
-  if (spawnRoll > 0.35) return null; // ~35% of cells have a spawn today
-
-  const speciesRng = ((h >>> 8) % 1000) / 1000;
-  const species = pickWeighted(speciesRng, CREATURES);
-
-  const altRng = ((h >>> 16) % 1000) / 1000;
-  const altitude = Math.round(species.minAlt + altRng * (species.maxAlt - species.minAlt));
-
-  // Jitter the exact point within the cell so pins aren't grid-aligned.
-  const jitterLat = (((h >>> 4) % 1000) / 1000) * GRID_SIZE_DEG;
-  const jitterLng = (((h >>> 12) % 1000) / 1000) * GRID_SIZE_DEG;
-  const lat = cellLat * GRID_SIZE_DEG + jitterLat;
-  const lng = cellLng * GRID_SIZE_DEG + jitterLng;
-
-  return {
-    uid: `${species.id}-${cellLat}-${cellLng}-${seed}`,
-    species,
-    lat,
-    lng,
-    altitude,
-  };
+function rand01(key) {
+  return (hashString(key) % 100000) / 100000;
 }
 
 function getNearbySpawns(playerLat, playerLng) {
-  const [cLat, cLng] = gridCell(playerLat, playerLng);
-  const seed = dailySeed();
+  const bucketLat = Math.round(playerLat / BUCKET_SIZE_DEG) * BUCKET_SIZE_DEG;
+  const bucketLng = Math.round(playerLng / BUCKET_SIZE_DEG) * BUCKET_SIZE_DEG;
+  const seed = `${bucketLat.toFixed(6)},${bucketLng.toFixed(6)},${dailySeed()}`;
   const spawns = [];
-  for (let dLat = -SPAWN_SEARCH_RADIUS_CELLS; dLat <= SPAWN_SEARCH_RADIUS_CELLS; dLat++) {
-    for (let dLng = -SPAWN_SEARCH_RADIUS_CELLS; dLng <= SPAWN_SEARCH_RADIUS_CELLS; dLng++) {
-      const spawn = spawnForCell(cLat + dLat, cLng + dLng, seed);
-      if (!spawn) continue;
-      if (haversineMeters(playerLat, playerLng, spawn.lat, spawn.lng) > MAX_SPAWN_DISTANCE_M) continue;
-      spawns.push(spawn);
-    }
+
+  for (let i = 0; i < SPAWN_SLOTS; i++) {
+    const slotKey = `${seed}:${i}`;
+    if (rand01(`${slotKey}:exist`) > SPAWN_CHANCE) continue;
+
+    const bearing = rand01(`${slotKey}:bearing`) * 360;
+    const distance =
+      MIN_SPAWN_DISTANCE_M + rand01(`${slotKey}:dist`) * (MAX_SPAWN_DISTANCE_M - MIN_SPAWN_DISTANCE_M);
+    const { lat, lng } = destinationPoint(bucketLat, bucketLng, bearing, distance);
+
+    const species = pickWeighted(rand01(`${slotKey}:species`), CREATURES);
+    const altitude = Math.round(
+      species.minAlt + rand01(`${slotKey}:alt`) * (species.maxAlt - species.minAlt)
+    );
+
+    spawns.push({ uid: slotKey, species, lat, lng, altitude });
   }
+
   return spawns;
 }

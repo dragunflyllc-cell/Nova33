@@ -372,12 +372,21 @@ function attachOrientationListener() {
 }
 
 function onOrientation(event) {
-  if (!radarSpawn || !playerLat) return;
+  if (!playerLat) return;
   let heading = event.webkitCompassHeading; // iOS Safari: already true-north, no reversal needed
   if (heading == null) {
     if (event.alpha == null) return;
     heading = (360 - event.alpha) % 360; // best-effort for browsers exposing raw alpha
   }
+  if (radarSpawn && document.getElementById("view-radar").classList.contains("active")) {
+    updateRadarUI(heading);
+  }
+  if (document.getElementById("view-live").classList.contains("active")) {
+    updateArOverlay(heading);
+  }
+}
+
+function updateRadarUI(heading) {
   const bearing = bearingDegrees(playerLat, playerLng, radarSpawn.lat, radarSpawn.lng);
   const relative = ((bearing - heading) + 360) % 360;
   document.getElementById("radar-arrow").style.transform = `rotate(${relative}deg)`;
@@ -385,6 +394,94 @@ function onOrientation(event) {
   const dist = haversineMeters(playerLat, playerLng, radarSpawn.lat, radarSpawn.lng);
   document.getElementById("radar-info").textContent = `${radarSpawn.species.name} · ${Math.round(dist)}m away`;
   document.getElementById("radar-capture-btn").style.display = dist <= CAPTURE_RADIUS_M ? "block" : "none";
+}
+
+// ---------- Live AR mode: overlay creatures on the pilot's own YouTube ----------
+// livestream (started from their drone's own app). Positioning is an
+// approximation from phone compass heading, not real computer vision on
+// the video — good enough for game feel, not precision AR.
+const AR_FOV_DEG = 80;
+const liveSprites = new Map();
+
+function extractYouTubeId(input) {
+  const trimmed = (input || "").trim();
+  const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:live\/|watch\?v=|embed\/))([\w-]{11})/);
+  if (match) return match[1];
+  if (/^[\w-]{11}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+function startLive() {
+  const input = document.getElementById("live-url-input").value;
+  const id = extractYouTubeId(input);
+  const status = document.getElementById("live-setup-status");
+  if (!id) {
+    status.textContent = "Couldn't find a video ID in that link — paste the full YouTube Live URL.";
+    return;
+  }
+  document.getElementById("live-iframe").src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`;
+  document.getElementById("live-setup").style.display = "none";
+  document.getElementById("live-stage").style.display = "block";
+  requestOrientationAccess();
+}
+
+function endLive() {
+  document.getElementById("live-iframe").src = "";
+  document.getElementById("live-setup").style.display = "block";
+  document.getElementById("live-stage").style.display = "none";
+  document.getElementById("live-url-input").value = "";
+  document.getElementById("live-setup-status").textContent = "";
+  liveSprites.forEach((sprite) => sprite.remove());
+  liveSprites.clear();
+}
+
+function updateArOverlay(heading) {
+  const layer = document.getElementById("live-ar-layer");
+  if (!layer || !playerLat) return;
+  const captured = new Set(loadCollection().map((c) => c.uid));
+  const half = AR_FOV_DEG / 2;
+  const seen = new Set();
+
+  currentSpawns.forEach((spawn) => {
+    if (captured.has(spawn.uid)) return;
+    const bearing = bearingDegrees(playerLat, playerLng, spawn.lat, spawn.lng);
+    const relative = ((bearing - heading + 540) % 360) - 180; // -180..180
+    if (Math.abs(relative) > half) {
+      const existing = liveSprites.get(spawn.uid);
+      if (existing) {
+        existing.remove();
+        liveSprites.delete(spawn.uid);
+      }
+      return;
+    }
+    seen.add(spawn.uid);
+
+    const dist = haversineMeters(playerLat, playerLng, spawn.lat, spawn.lng);
+    const xPct = 50 + (relative / half) * 46;
+    const scale = Math.max(0.5, 1.3 - dist / MAX_SPAWN_DISTANCE_M);
+
+    let sprite = liveSprites.get(spawn.uid);
+    if (!sprite) {
+      sprite = document.createElement("div");
+      sprite.className = "ar-sprite";
+      sprite.style.background = spawn.species.color;
+      const topPct = 30 + (hashString(spawn.uid) % 400) / 10; // 30–70%, stable per creature
+      sprite.style.top = `${topPct}%`;
+      sprite.addEventListener("click", () => openCapture(spawn));
+      layer.appendChild(sprite);
+      liveSprites.set(spawn.uid, sprite);
+    }
+    sprite.style.left = `${xPct}%`;
+    sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    sprite.title = `${spawn.species.name} · ${Math.round(dist)}m`;
+  });
+
+  for (const [uid, sprite] of liveSprites) {
+    if (!seen.has(uid)) {
+      sprite.remove();
+      liveSprites.delete(uid);
+    }
+  }
 }
 
 function enterTerritory() {
@@ -457,6 +554,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("capture-btn").addEventListener("click", attemptCapture);
   document.getElementById("tab-map").addEventListener("click", () => switchTab("map"));
   document.getElementById("tab-radar").addEventListener("click", () => switchTab("radar"));
+  document.getElementById("tab-live").addEventListener("click", () => switchTab("live"));
+  document.getElementById("live-start-btn").addEventListener("click", startLive);
+  document.getElementById("live-end-btn").addEventListener("click", endLive);
   document.getElementById("tab-collection").addEventListener("click", () => switchTab("collection"));
   document.getElementById("tab-data").addEventListener("click", () => switchTab("data"));
   document.getElementById("data-consent-toggle").addEventListener("change", (e) => {
@@ -471,7 +571,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function switchTab(tab) {
-  ["map", "radar", "territory", "collection", "data"].forEach((t) => {
+  ["map", "radar", "live", "territory", "collection", "data"].forEach((t) => {
     document.getElementById(`view-${t}`).classList.toggle("active", t === tab);
     document.getElementById(`tab-${t}`).classList.toggle("active", t === tab);
   });

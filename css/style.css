@@ -139,6 +139,18 @@ footer { text-align: center; padding: 2rem; color: #ffffff77; font-size: 0.85rem
 .view.active { display: block; }
 #map, #territory-map { width: 100%; height: 100%; }
 
+#live-stage { display: flex; flex-direction: column; }
+#live-video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; }
+#live-iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+#live-ar-layer { position: absolute; inset: 0; pointer-events: none; }
+.ar-sprite {
+  position: absolute; width: 54px; height: 54px; border-radius: 50%;
+  border: 3px solid white; box-shadow: 0 4px 12px #00000066, 0 0 16px 2px currentColor;
+  pointer-events: auto; cursor: pointer; animation: float 3s ease-in-out infinite;
+  transition: left 0.2s linear;
+}
+#live-end-btn { margin: 0.75rem; }
+
 .territory-panel {
   position: absolute; left: 0.75rem; right: 0.75rem; bottom: 0.75rem;
   background: var(--card); border: 2px solid #ffffff1a; border-radius: 18px;
