@@ -56,8 +56,9 @@ orSession2      = input.session("1330-1345", "Opening range #2 (PM)", group = gr
 flattenTime     = input.session("1550-1600", "Flatten-everything window (forces flat before close)", group = grpSession)
 
 grpStrat = "Strategy Parameters"
-tradeMode       = input.string("Continuous Range Breakout (more trades)", "Trade mode", options = ["Continuous Range Breakout (more trades)", "Opening Range Breakout (2x/day)"], group = grpStrat, tooltip = "Continuous mode re-arms a rolling breakout level all session long instead of only trading two fixed 15-minute windows — far more opportunities to fire.")
-channelMinutes  = input.int(60, "Continuous mode: breakout channel lookback (MINUTES, not bars)", minval = 5, group = grpStrat, tooltip = "Specified in minutes and converted to bars for whatever chart timeframe you're on, so a 1-min and 5-min chart use the same real lookback window instead of silently becoming 5x noisier on the faster chart. Shorter = more signals but noisier; longer = fewer, cleaner signals.")
+enableORB       = input.bool(true, "Enable Opening Range Breakout windows (2x/day)", group = grpStrat, tooltip = "Fixed-window, fixed-target setups at the AM/PM opening ranges. Can run at the same time as Continuous mode below — they use separate order IDs and don't conflict.")
+enableContinuous = input.bool(true, "Enable Continuous Range Breakout (re-arms all session)", group = grpStrat, tooltip = "Rolling channel breakout that re-quotes all session long. Runs alongside ORB windows above, not instead of them, unless you turn one off.")
+channelMinutes  = input.int(30, "Continuous mode: breakout channel lookback (MINUTES, not bars)", minval = 5, group = grpStrat, tooltip = "Specified in minutes and converted to bars for whatever chart timeframe you're on, so a 1-min and 5-min chart use the same real lookback window instead of silently becoming 5x noisier on the faster chart. Shortened from 60 to 30 by default to raise trade frequency — pair with a regime filter below if this reintroduces chop losses.")
 cooldownMinutes = input.int(30, "Continuous mode: cooldown after a trade closes (MINUTES, not bars)", minval = 0, group = grpStrat, tooltip = "Also timeframe-independent, same reasoning as the channel lookback above.")
 channelLen      = int(math.max(2, math.round(channelMinutes / timeframe.multiplier)))
 cooldownBars    = int(math.max(0, math.round(cooldownMinutes / timeframe.multiplier)))
@@ -80,8 +81,6 @@ bbMult          = input.float(2.0, "Volatility Squeeze: Bollinger Band multiplie
 squeezeLookbackMinutes = input.int(120, "Volatility Squeeze: lookback for 'recent low width' (MINUTES)", minval = 5, group = grpRegime)
 squeezeTolerancePct    = input.float(15, "Volatility Squeeze: allow width within this % of the recent low", step = 5, group = grpRegime)
 squeezeLookbackBars = int(math.max(2, math.round(squeezeLookbackMinutes / timeframe.multiplier)))
-
-isContinuousMode = tradeMode == "Continuous Range Breakout (more trades)"
 
 // ---------------------------------------------------------------------------
 // Session / opening range tracking
@@ -247,7 +246,7 @@ flatPosition = strategy.position_size == 0
 // ---------------------------------------------------------------------------
 tickBuf = syminfo.mintick * 2
 
-if not isContinuousMode and canTrade and or1Done and not or1Traded and contracts > 0
+if enableORB and canTrade and flatPosition and or1Done and not or1Traded and contracts > 0
     if allowLong and not na(or1High)
         strategy.entry("OR1-Long", strategy.long, qty = contracts, stop = or1High + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
@@ -257,7 +256,7 @@ if not isContinuousMode and canTrade and or1Done and not or1Traded and contracts
              alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1Low - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
         or1Traded := true
 
-if not isContinuousMode and canTrade and useSecondOR and or2Done and not or2Traded and contracts > 0
+if enableORB and canTrade and flatPosition and useSecondOR and or2Done and not or2Traded and contracts > 0
     if allowLong and not na(or2High)
         strategy.entry("OR2-Long", strategy.long, qty = contracts, stop = or2High + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or2High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
@@ -270,7 +269,7 @@ if not isContinuousMode and canTrade and useSecondOR and or2Done and not or2Trad
 // Continuous mode: keep re-quoting the current rolling channel as long as
 // we're flat and the cooldown has cleared. Pine updates the pending stop
 // order's price in place each time this is called with the same order id.
-if isContinuousMode and canTrade and flatPosition and cooldownOk and regimeOk and contracts > 0
+if enableContinuous and canTrade and flatPosition and cooldownOk and regimeOk and contracts > 0
     if allowLong and not na(chHigh)
         strategy.entry("C-Long", strategy.long, qty = contracts, stop = chHigh + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chHigh + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"trail_activate_pts":' + str.tostring(trailActivatePts) + ',"trail_offset_pts":' + str.tostring(trailOffsetPts) + '}')
@@ -280,9 +279,18 @@ if isContinuousMode and canTrade and flatPosition and cooldownOk and regimeOk an
 
 // Once in a position (or blocked from trading), don't leave a stale opposite
 // pending order sitting around — cancel it rather than risk an unintended flip.
-if isContinuousMode and (not flatPosition or not canTrade or not cooldownOk)
+if enableContinuous and (not flatPosition or not canTrade or not cooldownOk)
     strategy.cancel("C-Long")
     strategy.cancel("C-Short")
+
+// Same reasoning, other direction: if Continuous mode (or anything else)
+// just opened a position, cancel any still-pending ORB stop order so it
+// can't fill later and collide with that new position.
+if enableORB and not flatPosition
+    strategy.cancel("OR1-Long")
+    strategy.cancel("OR1-Short")
+    strategy.cancel("OR2-Long")
+    strategy.cancel("OR2-Short")
 
 // Cancel unfilled stop orders once the flatten window arrives so nothing
 // triggers into an overnight/next-day position.
@@ -321,20 +329,20 @@ strategy.exit("X-C-S", "C-Short", loss = stopDistancePts / syminfo.mintick,
 // ---------------------------------------------------------------------------
 // Plots / dashboard
 // ---------------------------------------------------------------------------
-plot(not isContinuousMode and or1Done ? or1High : na, "OR1 High", color = color.new(color.teal, 0), style = plot.style_linebr)
-plot(not isContinuousMode and or1Done ? or1Low  : na, "OR1 Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
-plot(not isContinuousMode and useSecondOR and or2Done ? or2High : na, "OR2 High", color = color.new(color.blue, 0), style = plot.style_linebr)
-plot(not isContinuousMode and useSecondOR and or2Done ? or2Low  : na, "OR2 Low",  color = color.new(color.orange, 0), style = plot.style_linebr)
-plot(isContinuousMode ? chHigh : na, "Channel High", color = color.new(color.teal, 0), style = plot.style_linebr)
-plot(isContinuousMode ? chLow  : na, "Channel Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
+plot(enableORB and or1Done ? or1High : na, "OR1 High", color = color.new(color.teal, 0), style = plot.style_linebr)
+plot(enableORB and or1Done ? or1Low  : na, "OR1 Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
+plot(enableORB and useSecondOR and or2Done ? or2High : na, "OR2 High", color = color.new(color.blue, 0), style = plot.style_linebr)
+plot(enableORB and useSecondOR and or2Done ? or2Low  : na, "OR2 Low",  color = color.new(color.orange, 0), style = plot.style_linebr)
+plot(enableContinuous ? chHigh : na, "Channel High", color = color.new(color.purple, 0), style = plot.style_linebr)
+plot(enableContinuous ? chLow  : na, "Channel Low",  color = color.new(color.fuchsia, 0), style = plot.style_linebr)
 bgcolor(inMainSession and not riskHalt ? color.new(color.green, 95) : riskHalt ? color.new(color.red, 90) : na)
 
 if barstate.islast
     var table dash = table.new(position.top_right, 2, 10, border_width = 1)
     table.cell(dash, 0, 0, "Metric", bgcolor = color.gray, text_color = color.white)
     table.cell(dash, 1, 0, "Value", bgcolor = color.gray, text_color = color.white)
-    table.cell(dash, 0, 8, "Mode / cooldown ok")
-    table.cell(dash, 1, 8, (isContinuousMode ? "Continuous" : "ORB 2x/day") + " / " + str.tostring(cooldownOk))
+    table.cell(dash, 0, 8, "Modes on / cooldown ok")
+    table.cell(dash, 1, 8, (enableORB ? "ORB " : "") + (enableContinuous ? "Continuous " : "") + "/ " + str.tostring(cooldownOk))
     table.cell(dash, 0, 9, "Regime filter / ADX")
     table.cell(dash, 1, 9, regimeMode + " / " + str.tostring(regimeOk) + " (ADX " + str.tostring(adxVal, "#.#") + ")")
     table.cell(dash, 0, 1, "Equity")

@@ -209,8 +209,19 @@ design so far:
    itself, explains the round-3 loss. Next backtest should compare None vs
    ADX vs Squeeze on the 5-minute chart to see which (if any) actually
    improves profit factor.
+5. **Real 3-month backtest, MNQ1!, 5-minute chart, 60-min channel, no
+   regime filter**: only 2 trades, but both winners — net +$385 (0.26%),
+   max drawdown $345 (0.23%), vs. +1.98% buy-and-hold over the same window.
+   First real evidence the edge direction is right; problem is now pure
+   frequency, not correctness. Diagnosed as (a) a 60-minute channel being
+   too patient to fire often, and (b) ORB and Continuous modes being
+   mutually exclusive by design, an artificial cap on opportunity count.
+   Fix: `channelMinutes` default cut 60 -> 30; `enableORB` and
+   `enableContinuous` are now independent toggles that can run
+   simultaneously (with a shared flat-position guard so they can't collide
+   with each other's open trade).
 
-Next real backtest should confirm whether the 5-minute / minutes-based fix,
-with or without a regime filter, actually restores the intended "big
-winners pay for many small losses" trend-following shape — until then,
-treat the profit-factor/avg-win-loss numbers as unresolved, not fixed.
+Next real backtest should show whether trade frequency actually increased
+without reintroducing the round-3 chop losses — if it does reintroduce
+them, turn on the ADX or Squeeze regime filter (built in round 4, not yet
+tested) as the next lever, rather than reverting the frequency changes.
