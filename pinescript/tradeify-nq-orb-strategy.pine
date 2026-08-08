@@ -56,13 +56,18 @@ orSession2      = input.session("1330-1345", "Opening range #2 (PM)", group = gr
 flattenTime     = input.session("1550-1600", "Flatten-everything window (forces flat before close)", group = grpSession)
 
 grpStrat = "Strategy Parameters"
+tradeMode       = input.string("Continuous Range Breakout (more trades)", "Trade mode", options = ["Continuous Range Breakout (more trades)", "Opening Range Breakout (2x/day)"], group = grpStrat, tooltip = "Continuous mode re-arms a rolling breakout level all session long instead of only trading two fixed 15-minute windows — far more opportunities to fire.")
+channelLen      = input.int(12, "Continuous mode: breakout channel length (bars)", minval = 2, group = grpStrat, tooltip = "Rolling N-bar high/low used as the breakout trigger, recalculated every bar. Shorter = more signals but noisier; longer = fewer, cleaner signals.")
+cooldownBars    = input.int(6, "Continuous mode: cooldown bars after a trade closes", minval = 0, group = grpStrat, tooltip = "Bars to wait before re-arming a new breakout after the last trade closes, to avoid immediately whipsawing back in.")
 atrLen          = input.int(14, "Daily ATR length", group = grpStrat)
 stopAtrMult     = input.float(0.40, "Stop = ATR x", step = 0.05, group = grpStrat)
-targetAtrMult   = input.float(0.55, "Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets an ORB system clear 50% win rate. Widening this trades win rate for payoff — backtest before changing.")
-useTrendFilter  = input.bool(true, "Only trade with the daily trend (prior close vs 20d SMA)", group = grpStrat)
+targetAtrMult   = input.float(0.55, "Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets a breakout system clear 50% win rate. Widening this trades win rate for payoff — backtest before changing.")
+useTrendFilter  = input.bool(true, "Only trade with the daily trend (prior close vs 20d SMA)", group = grpStrat, tooltip = "Turning this off roughly doubles opportunity count (both directions tradable every day) at the cost of the trend edge that keeps win rate defensible.")
 trendSmaLen     = input.int(20, "Trend filter SMA length (daily)", group = grpStrat)
 riskPctOfBuffer = input.float(8, "Risk per trade, as % of (equity - drawdown floor)", step = 0.5, group = grpStrat, tooltip = "Sized off distance-to-drawdown-floor, not headline balance — that distance is the capital you can actually afford to lose.")
 maxDllSharePerTrade = input.float(40, "Cap: never risk more than this % of TODAY's remaining DLL on one trade", step = 5, group = grpStrat)
+
+isContinuousMode = tradeMode == "Continuous Range Breakout (more trades)"
 
 // ---------------------------------------------------------------------------
 // Session / opening range tracking
@@ -195,11 +200,23 @@ contractsRaw = stopDistancePts > 0 and pointValue > 0 ? math.floor(riskDollars /
 contracts = int(math.max(0, math.min(contractsRaw, maxContracts)))
 
 // ---------------------------------------------------------------------------
-// Entries — breakout of the opening range, in the direction of the daily trend
+// Continuous mode — rolling N-bar channel breakout, re-arms all session long
+// ---------------------------------------------------------------------------
+chHigh = ta.highest(high, channelLen)[1]
+chLow  = ta.lowest(low, channelLen)[1]
+
+var int lastExitBar = na
+if strategy.closedtrades > strategy.closedtrades[1]
+    lastExitBar := bar_index
+cooldownOk = na(lastExitBar) or (bar_index - lastExitBar) >= cooldownBars
+flatPosition = strategy.position_size == 0
+
+// ---------------------------------------------------------------------------
+// Entries
 // ---------------------------------------------------------------------------
 tickBuf = syminfo.mintick * 2
 
-if canTrade and or1Done and not or1Traded and contracts > 0
+if not isContinuousMode and canTrade and or1Done and not or1Traded and contracts > 0
     if allowLong and not na(or1High)
         strategy.entry("OR1-Long", strategy.long, qty = contracts, stop = or1High + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
@@ -209,7 +226,7 @@ if canTrade and or1Done and not or1Traded and contracts > 0
              alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or1Low - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
         or1Traded := true
 
-if canTrade and useSecondOR and or2Done and not or2Traded and contracts > 0
+if not isContinuousMode and canTrade and useSecondOR and or2Done and not or2Traded and contracts > 0
     if allowLong and not na(or2High)
         strategy.entry("OR2-Long", strategy.long, qty = contracts, stop = or2High + tickBuf,
              alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or2High + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
@@ -219,6 +236,23 @@ if canTrade and useSecondOR and or2Done and not or2Traded and contracts > 0
              alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(or2Low - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
         or2Traded := true
 
+// Continuous mode: keep re-quoting the current rolling channel as long as
+// we're flat and the cooldown has cleared. Pine updates the pending stop
+// order's price in place each time this is called with the same order id.
+if isContinuousMode and canTrade and flatPosition and cooldownOk and contracts > 0
+    if allowLong and not na(chHigh)
+        strategy.entry("C-Long", strategy.long, qty = contracts, stop = chHigh + tickBuf,
+             alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chHigh + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+    if allowShort and not na(chLow)
+        strategy.entry("C-Short", strategy.short, qty = contracts, stop = chLow - tickBuf,
+             alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chLow - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+
+// Once in a position (or blocked from trading), don't leave a stale opposite
+// pending order sitting around — cancel it rather than risk an unintended flip.
+if isContinuousMode and (not flatPosition or not canTrade or not cooldownOk)
+    strategy.cancel("C-Long")
+    strategy.cancel("C-Short")
+
 // Cancel unfilled stop orders once the flatten window arrives so nothing
 // triggers into an overnight/next-day position.
 if inFlattenWin
@@ -226,6 +260,8 @@ if inFlattenWin
     strategy.cancel("OR1-Short")
     strategy.cancel("OR2-Long")
     strategy.cancel("OR2-Short")
+    strategy.cancel("C-Long")
+    strategy.cancel("C-Short")
 
 // ---------------------------------------------------------------------------
 // Exits — ATR stop/target on every entry
@@ -238,20 +274,28 @@ strategy.exit("X-OR2-L", "OR2-Long", loss = stopDistancePts / syminfo.mintick, p
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
 strategy.exit("X-OR2-S", "OR2-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+strategy.exit("X-C-L", "C-Long", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
+strategy.exit("X-C-S", "C-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+     alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
 
 // ---------------------------------------------------------------------------
 // Plots / dashboard
 // ---------------------------------------------------------------------------
-plot(or1Done ? or1High : na, "OR1 High", color = color.new(color.teal, 0), style = plot.style_linebr)
-plot(or1Done ? or1Low  : na, "OR1 Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
-plot(useSecondOR and or2Done ? or2High : na, "OR2 High", color = color.new(color.blue, 0), style = plot.style_linebr)
-plot(useSecondOR and or2Done ? or2Low  : na, "OR2 Low",  color = color.new(color.orange, 0), style = plot.style_linebr)
+plot(not isContinuousMode and or1Done ? or1High : na, "OR1 High", color = color.new(color.teal, 0), style = plot.style_linebr)
+plot(not isContinuousMode and or1Done ? or1Low  : na, "OR1 Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
+plot(not isContinuousMode and useSecondOR and or2Done ? or2High : na, "OR2 High", color = color.new(color.blue, 0), style = plot.style_linebr)
+plot(not isContinuousMode and useSecondOR and or2Done ? or2Low  : na, "OR2 Low",  color = color.new(color.orange, 0), style = plot.style_linebr)
+plot(isContinuousMode ? chHigh : na, "Channel High", color = color.new(color.teal, 0), style = plot.style_linebr)
+plot(isContinuousMode ? chLow  : na, "Channel Low",  color = color.new(color.maroon, 0), style = plot.style_linebr)
 bgcolor(inMainSession and not riskHalt ? color.new(color.green, 95) : riskHalt ? color.new(color.red, 90) : na)
 
 if barstate.islast
-    var table dash = table.new(position.top_right, 2, 8, border_width = 1)
+    var table dash = table.new(position.top_right, 2, 9, border_width = 1)
     table.cell(dash, 0, 0, "Metric", bgcolor = color.gray, text_color = color.white)
     table.cell(dash, 1, 0, "Value", bgcolor = color.gray, text_color = color.white)
+    table.cell(dash, 0, 8, "Mode / cooldown ok")
+    table.cell(dash, 1, 8, (isContinuousMode ? "Continuous" : "ORB 2x/day") + " / " + str.tostring(cooldownOk))
     table.cell(dash, 0, 1, "Equity")
     table.cell(dash, 1, 1, str.tostring(currentEquity, "#.##"))
     table.cell(dash, 0, 2, "Trailing floor")

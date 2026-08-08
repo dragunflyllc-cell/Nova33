@@ -37,10 +37,16 @@ leveraged ETF, not NQ futures, and "statistically significant edge in a
 backtest" is not a promise of forward performance — no such promise exists
 in trading, from me or anyone else.
 
-- Trades the breakout of the first 15 minutes after the open (`0930-0945`
-  ET) and, optionally, a second range after the early-afternoon lull
-  (`1330-1345` ET) — two shots a day at hitting your weekly number instead
-  of one.
+- **Trade mode (input): "Continuous Range Breakout" (default) vs "Opening
+  Range Breakout (2x/day)".** The original design only traded two fixed
+  15-minute windows a day and, in practice, that starved it of opportunities
+  (one trade in 90 days in testing). The default is now a rolling N-bar
+  channel breakout (`channelLen`, default 12 bars) that re-arms itself all
+  session long: after each trade closes and a cooldown (`cooldownBars`,
+  default 6) passes, it re-quotes a fresh breakout level off the trailing
+  high/low and waits for the next one. Same lineage as the old Turtle
+  Trading Donchian-channel system. The old fixed-window ORB mode is still
+  available as a toggle if you want to compare the two in Strategy Tester.
 - Only trades in the direction of the prior day's close vs. its 20-day SMA
   (toggle-able). This is what keeps win rate defensible above 50%: it skips
   counter-trend breakouts, which is where most ORB false-breakout losses
@@ -72,6 +78,20 @@ in trading, from me or anyone else.
   week's profit (default warning at 30%) — informational only. A strategy
   cannot ethically or mechanically refuse to take a winning trade because
   of a payout consistency rule; it can only warn you.
+
+## Trade frequency vs. instrument choice
+
+If you're seeing very few trades even in Continuous mode, check the
+dashboard's **"Next size (contracts)"** row first — it's almost always
+sizing, not the entry logic. Position size is computed from your
+distance-to-drawdown-floor and remaining daily-loss budget, not the $150K
+balance. On **NQ1!** (full-size, $20/point), a typical ATR-scaled stop costs
+$2,000-3,000 per contract to risk — close to the entire $3,750 daily loss
+limit — so the sizing math correctly rounds down to 0 contracts most days.
+**Trade MNQ1!** (Micro E-mini, $2/point, 1/10th the size) instead; the same
+risk budget then produces 1-3+ contracts. This isn't a bug, it's the sizing
+discipline doing its job — full-size NQ is structurally the wrong instrument
+for granular, risk-managed sizing on a $150K account with a $3,750 DLL.
 
 ## Honest limits of what this can promise
 
