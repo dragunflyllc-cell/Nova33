@@ -32,6 +32,18 @@ A rewarded-video partner (e.g. AdMob web) offering an extra daily spawn
 refresh in exchange for watching an ad. Kept optional so it never feels
 required to compete.
 
+## Phase 6 — Opt-in aerial data contribution
+After a catch, players can optionally snap a ground photo (Data Contributor
+mode, off by default). Today this only stores photos locally on the
+player's own phone — there is no data buyer integrated and nothing is
+uploaded automatically. This is scaffolding for a legitimate future
+revenue line (companies like DroneDeploy/Propeller Aero already pay pilots
+for aerial imagery), but it only ships as real monetization once there's
+an actual data partner, explicit disclosure of who receives the data and
+why, and a separate consent step distinct from this toggle. Never framed
+as something incidental to gameplay — it's a clearly labeled, separate
+mode a player has to deliberately turn on.
+
 ## What we deliberately avoid
 - No pay-to-win altitude/GPS shortcuts — that would undermine the "you
   actually have to fly there" premise that makes this game credible to

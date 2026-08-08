@@ -5,6 +5,8 @@
 const CAPTURE_RADIUS_M = 30;
 const ALT_TOLERANCE_FT = 25;
 const STORAGE_KEY = "dragunfly_collection_v1";
+const CONSENT_KEY = "dragunfly_data_consent_v1";
+const CONTRIB_KEY = "dragunfly_contributions_v1";
 
 let map, playerMarker, playerLat, playerLng;
 const spawnMarkers = new Map();
@@ -102,6 +104,10 @@ function openCapture(spawn) {
   document.getElementById("capture-alt-input").value = spawn.altitude;
   document.getElementById("capture-btn").disabled = captured;
   document.getElementById("capture-btn").textContent = captured ? "Caught ✓" : "Attempt Capture";
+  document.getElementById("share-btn").style.display = "none";
+  document.getElementById("photo-btn").style.display = "none";
+  document.getElementById("photo-btn").disabled = false;
+  document.getElementById("photo-btn").textContent = "Add ground photo (optional)";
   updateDistanceReadout();
   modal.classList.add("open");
 }
@@ -149,6 +155,96 @@ function attemptCapture() {
   document.getElementById("capture-btn").textContent = "Caught ✓";
   refreshSpawns();
   offerShare(activeSpawn);
+  fireConfetti(activeSpawn.species.color);
+  if (isDataConsent()) {
+    document.getElementById("photo-btn").style.display = "inline-block";
+  }
+}
+
+function fireConfetti(color) {
+  const layer = document.getElementById("confetti-layer");
+  if (!layer) return;
+  layer.innerHTML = "";
+  const palette = [color, "#ffc93c", "#ff5f6d", "#35d0a1", "#5ec8ff"];
+  for (let i = 0; i < 24; i++) {
+    const piece = document.createElement("div");
+    piece.className = "confetti-piece";
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = palette[i % palette.length];
+    piece.style.animationDelay = `${Math.random() * 0.3}s`;
+    layer.appendChild(piece);
+  }
+}
+
+// ---------- Data Contributor mode (opt-in, disclosed, nothing auto-shared) ----------
+function isDataConsent() {
+  return localStorage.getItem(CONSENT_KEY) === "true";
+}
+
+function setDataConsent(value) {
+  localStorage.setItem(CONSENT_KEY, value ? "true" : "false");
+}
+
+function loadContributions() {
+  try {
+    return JSON.parse(localStorage.getItem(CONTRIB_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveContribution(entry) {
+  const list = loadContributions();
+  list.push(entry);
+  localStorage.setItem(CONTRIB_KEY, JSON.stringify(list));
+  renderContributions();
+}
+
+function renderContributions() {
+  const list = loadContributions();
+  const countEl = document.getElementById("contrib-count");
+  if (countEl) countEl.textContent = list.length;
+  const listEl = document.getElementById("contrib-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  if (list.length === 0) {
+    listEl.innerHTML = '<p class="empty">No ground photos yet.</p>';
+    return;
+  }
+  [...list].reverse().forEach((c) => {
+    const div = document.createElement("div");
+    div.className = "catch-card";
+    div.innerHTML = `
+      <img src="${c.photo}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0">
+      <div>
+        <strong>${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}</strong>
+        <div class="meta">${new Date(c.timestamp).toLocaleString()} · stored on this device only</div>
+      </div>`;
+    listEl.appendChild(div);
+  });
+}
+
+function renderDataTab() {
+  const toggle = document.getElementById("data-consent-toggle");
+  if (toggle) toggle.checked = isDataConsent();
+  renderContributions();
+}
+
+function handlePhotoSelected(file) {
+  if (!file || !activeSpawn) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    saveContribution({
+      uid: activeSpawn.uid,
+      lat: activeSpawn.lat,
+      lng: activeSpawn.lng,
+      timestamp: Date.now(),
+      photo: reader.result,
+    });
+    document.getElementById("photo-btn").textContent = "Photo saved ✓";
+    document.getElementById("photo-btn").disabled = true;
+  };
+  reader.readAsDataURL(file);
 }
 
 function offerShare(spawn) {
@@ -292,21 +388,33 @@ function onOrientation(event) {
 
 document.addEventListener("DOMContentLoaded", () => {
   renderCollection();
+  renderDataTab();
   startLocationWatch();
   document.getElementById("capture-close").addEventListener("click", closeCapture);
   document.getElementById("capture-btn").addEventListener("click", attemptCapture);
   document.getElementById("tab-map").addEventListener("click", () => switchTab("map"));
   document.getElementById("tab-radar").addEventListener("click", () => switchTab("radar"));
   document.getElementById("tab-collection").addEventListener("click", () => switchTab("collection"));
+  document.getElementById("tab-data").addEventListener("click", () => switchTab("data"));
+  document.getElementById("data-consent-toggle").addEventListener("change", (e) => {
+    setDataConsent(e.target.checked);
+  });
+  document.getElementById("photo-btn").addEventListener("click", () => {
+    document.getElementById("photo-input").click();
+  });
+  document.getElementById("photo-input").addEventListener("change", (e) => {
+    handlePhotoSelected(e.target.files[0]);
+  });
 });
 
 function switchTab(tab) {
-  ["map", "radar", "collection"].forEach((t) => {
+  ["map", "radar", "collection", "data"].forEach((t) => {
     document.getElementById(`view-${t}`).classList.toggle("active", t === tab);
     document.getElementById(`tab-${t}`).classList.toggle("active", t === tab);
   });
   if (tab === "map" && map) setTimeout(() => map.invalidateSize(), 50);
   if (tab === "radar") enterRadar();
+  if (tab === "data") renderDataTab();
 }
 
 if ("serviceWorker" in navigator) {

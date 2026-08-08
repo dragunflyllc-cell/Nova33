@@ -7,7 +7,7 @@
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#023047">
+  <meta name="theme-color" content="#6a3df5">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -39,15 +39,38 @@
       <div id="collection-list"></div>
     </div>
 
+    <div class="view" id="view-data">
+      <div class="data-wrap">
+        <div class="data-card">
+          <h3>Data Contributor mode</h3>
+          <p>When this is on, after a catch you can optionally snap a ground photo with your phone's camera. It's tagged with the GPS spot and saved <strong>only on this phone</strong> — nothing uploads automatically.</p>
+          <p>We don't have a data buyer lined up yet. If that ever changes, you'll see a separate, explicit prompt before anything of yours is shared or sold — this toggle alone never sends your photos anywhere.</p>
+          <div class="toggle-row">
+            <strong>Enable Data Contributor mode</strong>
+            <label class="switch">
+              <input type="checkbox" id="data-consent-toggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="data-card">
+          <h3>My contributions (<span id="contrib-count">0</span>)</h3>
+          <div id="contrib-list" class="contrib-list"></div>
+        </div>
+      </div>
+    </div>
+
     <nav class="tabbar">
       <button id="tab-map" class="active">Map</button>
       <button id="tab-radar">Radar</button>
       <button id="tab-collection">Collection</button>
+      <button id="tab-data">Data</button>
     </nav>
   </div>
 
   <div class="modal" id="capture-modal">
     <div class="sheet">
+      <div class="confetti-layer" id="confetti-layer"></div>
       <div class="sheet-header">
         <h2 id="capture-name">Creature</h2>
         <button id="capture-close">&times;</button>
@@ -60,6 +83,8 @@
       <p id="capture-status"></p>
       <button class="btn btn-primary" id="capture-btn">Attempt Capture</button>
       <button class="btn btn-secondary" id="share-btn">Share catch</button>
+      <button class="btn btn-secondary" id="photo-btn" style="display:none">Add ground photo (optional)</button>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none">
     </div>
   </div>
 
