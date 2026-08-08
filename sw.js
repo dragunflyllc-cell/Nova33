@@ -1,13 +1,13 @@
 // Dragunfly — minimal offline cache so the app shell installs cleanly.
 const CACHE = "dragunfly-v1";
 const ASSETS = [
-  "/play.html",
-  "/css/style.css",
-  "/js/creatures.js",
-  "/js/geo.js",
-  "/js/game.js",
-  "/icons/icon.svg",
-  "/manifest.json",
+  "play.html",
+  "css/style.css",
+  "js/creatures.js",
+  "js/geo.js",
+  "js/game.js",
+  "icons/icon.svg",
+  "manifest.json",
 ];
 
 self.addEventListener("install", (event) => {

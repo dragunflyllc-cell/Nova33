@@ -2,11 +2,11 @@
   "name": "Dragunfly",
   "short_name": "Dragunfly",
   "description": "Fly your real drone to catch original sky creatures at real GPS coordinates and altitudes.",
-  "start_url": "/play.html",
+  "start_url": "play.html",
   "display": "standalone",
   "background_color": "#023047",
   "theme_color": "#023047",
   "icons": [
-    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }
