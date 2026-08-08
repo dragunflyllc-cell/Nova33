@@ -121,6 +121,15 @@ footer { text-align: center; padding: 2rem; color: #ffffff77; font-size: 0.85rem
 }
 .app-header .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; }
 .app-header .brand img { width: 30px; height: 30px; border-radius: 9px; }
+.header-actions { display: flex; align-items: center; gap: 0.6rem; }
+.safety-link {
+  background: #ffffff22; border: none; color: var(--ink); font-size: 0.8rem; font-weight: 700;
+  padding: 0.4rem 0.7rem; border-radius: 999px; cursor: pointer;
+}
+.safety-list { padding-left: 1.2rem; margin: 0.75rem 0 1.25rem; }
+.safety-list li { margin-bottom: 0.6rem; font-size: 0.92rem; line-height: 1.4; color: #ffffffdd; }
+.safety-list a { color: var(--sun); }
+
 .app-header .count {
   color: #40260a; font-size: 0.85rem; font-weight: 800;
   background: var(--sun); padding: 0.3rem 0.8rem; border-radius: 999px;

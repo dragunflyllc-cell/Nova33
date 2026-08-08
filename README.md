@@ -19,14 +19,16 @@ location. That's a deliberate design choice, not a limitation:
 
 ## Structure
 - `index.html` — marketing landing page (share/link-in-bio entry point)
-- `play.html` — the game itself (map, capture flow, collection)
+- `play.html` — the game itself (map, radar, territory, collection, data tabs)
 - `js/creatures.js` — creature roster + deterministic spawn hashing
-- `js/geo.js` — distance/bearing/grid math, spawn generation
-- `js/game.js` — map rendering (Leaflet), capture flow, localStorage collection
+- `js/geo.js` — distance/bearing/grid math, spawn generation, VLOS-conscious distance cap
+- `js/game.js` — map rendering (Leaflet), capture flow, safety gate, localStorage collection
+- `js/territory.js` + `js/firebase-config.js` — Territory mode (needs one-time setup, see below)
 - `manifest.json` / `sw.js` — PWA installability + offline app shell
 - `docs/monetization.md` — revenue plan
 - `docs/marketing-plan.md` — zero-budget growth plan
 - `docs/social-templates.md` — ready-to-post launch copy
+- `docs/territory-setup.md` — one-time free Firebase setup for Territory mode
 
 ## Running locally
 This is a static site — no build step, no server required beyond a static
@@ -43,14 +45,28 @@ tiers). Location and altitude confirmation only work meaningfully in the
 field with a phone, over HTTPS (required for the Geolocation API).
 
 ## Safety
-Dragunfly caps every in-game altitude target at 400ft AGL to align with
-typical FAA Part 107 / recreational limits, and the landing page carries an
-explicit reminder that pilots are responsible for flying legally and safely
-regardless of what the game shows.
+Safety constraints are built into the game logic, not just stated in copy:
+- Every in-game altitude target is capped at 400ft AGL (FAA Part 107 /
+  recreational ceiling) — see `creatures.js`.
+- Creature spawns are filtered to within ~180m of the player
+  (`MAX_SPAWN_DISTANCE_M` in `geo.js`) so the game doesn't nudge pilots
+  into flying further than they can keep their aircraft in unaided visual
+  line of sight.
+- First-time players see a mandatory "Fly Safe" checklist before playing
+  (VLOS, no flying over people, daylight, airspace check via the FAA's
+  free B4UFLY tool, FAA drone registration/Remote ID) — reachable anytime
+  from the 🛡️ Fly Safe button in the header. See `openSafetyModal()` in
+  `js/game.js`.
+- The landing page carries the same checklist and links.
+
+None of this replaces the pilot's own responsibility to follow FAA and
+local law — it's guardrails against the game accidentally encouraging
+something unsafe, not a compliance guarantee.
 
 ## Roadmap ideas (not yet built)
-- Compass/AR overlay using `DeviceOrientationEvent` to point pilots toward
-  the nearest spawn.
 - Optional DJI Mobile SDK integration (still a free developer registration,
   not a partnership) for automatic altitude confirmation instead of manual entry.
 - Sponsored location spawns (see `docs/monetization.md`).
+- Real airspace-awareness (e.g. flagging spawns near FAA UAS Facility Map
+  grids that need LAANC authorization) — would need a data integration,
+  not yet built.

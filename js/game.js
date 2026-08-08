@@ -7,6 +7,7 @@ const ALT_TOLERANCE_FT = 25;
 const STORAGE_KEY = "dragunfly_collection_v1";
 const CONSENT_KEY = "dragunfly_data_consent_v1";
 const CONTRIB_KEY = "dragunfly_contributions_v1";
+const SAFETY_ACK_KEY = "dragunfly_safety_ack_v1";
 
 let map, playerMarker, playerLat, playerLng;
 const spawnMarkers = new Map();
@@ -410,11 +411,42 @@ async function attemptClaim() {
   status.textContent = result.ok ? "Claimed! It's yours." : result.reason;
 }
 
+// ---------- Fly Safe checklist gate ----------
+function isSafetyAcked() {
+  return localStorage.getItem(SAFETY_ACK_KEY) === "true";
+}
+
+function openSafetyModal() {
+  const acked = isSafetyAcked();
+  document.getElementById("safety-ack-checkbox").checked = acked;
+  document.getElementById("safety-continue-btn").disabled = !acked;
+  document.getElementById("safety-close").style.display = acked ? "inline-block" : "none";
+  document.getElementById("safety-modal").classList.add("open");
+}
+
+function closeSafetyModal() {
+  document.getElementById("safety-modal").classList.remove("open");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   renderCollection();
   renderDataTab();
   startLocationWatch();
   if (window.Territory) window.Territory.initTerritory();
+
+  if (isSafetyAcked()) closeSafetyModal();
+  else openSafetyModal();
+  document.getElementById("safety-ack-checkbox").addEventListener("change", (e) => {
+    document.getElementById("safety-continue-btn").disabled = !e.target.checked;
+  });
+  document.getElementById("safety-continue-btn").addEventListener("click", () => {
+    if (document.getElementById("safety-ack-checkbox").checked) {
+      localStorage.setItem(SAFETY_ACK_KEY, "true");
+    }
+    closeSafetyModal();
+  });
+  document.getElementById("safety-close").addEventListener("click", closeSafetyModal);
+  document.getElementById("safety-link").addEventListener("click", openSafetyModal);
   window.addEventListener("territory-tile-selected", (e) => {
     document.getElementById("territory-status").textContent =
       `Selected tile at ${e.detail.lat.toFixed(5)}, ${e.detail.lng.toFixed(5)} — fly your drone there and claim it.`;

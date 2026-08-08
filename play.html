@@ -16,6 +16,7 @@
     <header class="app-header">
       <div class="brand"><img src="icons/icon.svg" alt=""> Dragunfly</div>
       <div class="header-actions">
+        <button id="safety-link" class="safety-link" title="Fly Safe checklist">🛡️ Fly Safe</button>
         <div class="count"><span id="collection-count">0</span> caught</div>
       </div>
     </header>
@@ -100,6 +101,30 @@
       <button class="btn btn-secondary" id="share-btn">Share catch</button>
       <button class="btn btn-secondary" id="photo-btn" style="display:none">Add ground photo (optional)</button>
       <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none">
+    </div>
+  </div>
+
+  <div class="modal open" id="safety-modal">
+    <div class="sheet">
+      <div class="sheet-header">
+        <h2>Fly Safe first</h2>
+        <button id="safety-close" style="display:none">&times;</button>
+      </div>
+      <p>Dragunfly is a location game layered on top of your flight — it never controls your drone. You're always the one responsible for flying it legally and safely. Quick checklist before you take off:</p>
+      <ul class="safety-list">
+        <li>Stay at or below <strong>400ft above the ground</strong> — Dragunfly never places a target higher than that.</li>
+        <li>Keep your drone within <strong>unaided visual line of sight</strong> at all times.</li>
+        <li>Don't fly directly over people or moving vehicles.</li>
+        <li>Check your spot for airspace restrictions with the FAA's free <a href="https://b4ufly.aloft.ai" target="_blank" rel="noopener">B4UFLY</a> tool before flying.</li>
+        <li>If your drone weighs more than 0.55lb (250g), register it with the FAA at <a href="https://faadronezone.faa.gov" target="_blank" rel="noopener">FAADroneZone</a> and make sure it broadcasts Remote ID.</li>
+        <li>Fly in daylight (or civil twilight with anti-collision lighting).</li>
+        <li>Never fly near airports, emergency response activity, or under the influence of alcohol or drugs.</li>
+      </ul>
+      <label class="toggle-row" style="align-items:flex-start; cursor:pointer">
+        <span>I understand I'm responsible for following FAA and local drone laws every time I fly.</span>
+        <input type="checkbox" id="safety-ack-checkbox" style="width:20px;height:20px;flex-shrink:0;margin-top:2px">
+      </label>
+      <button class="btn btn-primary" id="safety-continue-btn" disabled>Continue to Dragunfly</button>
     </div>
   </div>
 

@@ -3,6 +3,11 @@
 const EARTH_RADIUS_M = 6371000;
 const GRID_SIZE_DEG = 0.0018; // ~200m cells
 const SPAWN_SEARCH_RADIUS_CELLS = 2; // scan a 5x5 grid around the player
+// Kept conservative on purpose: a small consumer drone is easy to keep in
+// unaided visual line of sight within this range in open conditions. The
+// game should never be the reason someone flies further than they can
+// clearly see their aircraft.
+const MAX_SPAWN_DISTANCE_M = 180;
 
 function toRad(deg) {
   return (deg * Math.PI) / 180;
@@ -64,7 +69,9 @@ function getNearbySpawns(playerLat, playerLng) {
   for (let dLat = -SPAWN_SEARCH_RADIUS_CELLS; dLat <= SPAWN_SEARCH_RADIUS_CELLS; dLat++) {
     for (let dLng = -SPAWN_SEARCH_RADIUS_CELLS; dLng <= SPAWN_SEARCH_RADIUS_CELLS; dLng++) {
       const spawn = spawnForCell(cLat + dLat, cLng + dLng, seed);
-      if (spawn) spawns.push(spawn);
+      if (!spawn) continue;
+      if (haversineMeters(playerLat, playerLng, spawn.lat, spawn.lng) > MAX_SPAWN_DISTANCE_M) continue;
+      spawns.push(spawn);
     }
   }
   return spawns;
