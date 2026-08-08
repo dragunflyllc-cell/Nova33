@@ -61,7 +61,9 @@ channelLen      = input.int(12, "Continuous mode: breakout channel length (bars)
 cooldownBars    = input.int(6, "Continuous mode: cooldown bars after a trade closes", minval = 0, group = grpStrat, tooltip = "Bars to wait before re-arming a new breakout after the last trade closes, to avoid immediately whipsawing back in.")
 atrLen          = input.int(14, "Daily ATR length", group = grpStrat)
 stopAtrMult     = input.float(0.40, "Stop = ATR x", step = 0.05, group = grpStrat)
-targetAtrMult   = input.float(0.55, "Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets a breakout system clear 50% win rate. Widening this trades win rate for payoff — backtest before changing.")
+targetAtrMult   = input.float(0.55, "ORB mode only: Target = ATR x", step = 0.05, group = grpStrat, tooltip = "Only used by 'Opening Range Breakout (2x/day)' mode. Kept close to (or below) the stop multiple on purpose: a tight, high-probability target is what lets that mode clear 50% win rate.")
+trailActivateAtrMult = input.float(0.35, "Continuous mode: trailing stop activates after ATR x profit", step = 0.05, group = grpStrat, tooltip = "Continuous mode uses a trailing stop instead of a fixed target, so real trends can run instead of being capped. Once open profit reaches this many ATR, a trailing stop arms.")
+trailOffsetAtrMult   = input.float(0.25, "Continuous mode: trailing stop distance = ATR x", step = 0.05, group = grpStrat, tooltip = "How far the trailing stop sits behind price once armed. Smaller = locks in profit faster but exits trends sooner; larger = gives trends more room but gives back more open profit.")
 useTrendFilter  = input.bool(true, "Only trade with the daily trend (prior close vs 20d SMA)", group = grpStrat, tooltip = "Turning this off roughly doubles opportunity count (both directions tradable every day) at the cost of the trend edge that keeps win rate defensible.")
 trendSmaLen     = input.int(20, "Trend filter SMA length (daily)", group = grpStrat)
 riskPctOfBuffer = input.float(8, "Risk per trade, as % of (equity - drawdown floor)", step = 0.5, group = grpStrat, tooltip = "Sized off distance-to-drawdown-floor, not headline balance — that distance is the capital you can actually afford to lose.")
@@ -190,6 +192,8 @@ canTrade = inMainSession and not riskHalt and not inFlattenWin and dllRemaining 
 // ---------------------------------------------------------------------------
 stopDistancePts = dailyAtr * stopAtrMult
 targetDistancePts = dailyAtr * targetAtrMult
+trailActivatePts = dailyAtr * trailActivateAtrMult
+trailOffsetPts = dailyAtr * trailOffsetAtrMult
 pointValue = syminfo.pointvalue
 
 riskDollarsFromFloor = math.max(0.0, distanceToFloor) * (riskPctOfBuffer / 100)
@@ -242,10 +246,10 @@ if not isContinuousMode and canTrade and useSecondOR and or2Done and not or2Trad
 if isContinuousMode and canTrade and flatPosition and cooldownOk and contracts > 0
     if allowLong and not na(chHigh)
         strategy.entry("C-Long", strategy.long, qty = contracts, stop = chHigh + tickBuf,
-             alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chHigh + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+             alert_message = '{"action":"BUY_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chHigh + tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"trail_activate_pts":' + str.tostring(trailActivatePts) + ',"trail_offset_pts":' + str.tostring(trailOffsetPts) + '}')
     if allowShort and not na(chLow)
         strategy.entry("C-Short", strategy.short, qty = contracts, stop = chLow - tickBuf,
-             alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chLow - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"target_pts":' + str.tostring(targetDistancePts) + '}')
+             alert_message = '{"action":"SELL_STOP","symbol":"' + syminfo.ticker + '","qty":' + str.tostring(contracts) + ',"trigger":' + str.tostring(chLow - tickBuf) + ',"stop_loss_pts":' + str.tostring(stopDistancePts) + ',"trail_activate_pts":' + str.tostring(trailActivatePts) + ',"trail_offset_pts":' + str.tostring(trailOffsetPts) + '}')
 
 // Once in a position (or blocked from trading), don't leave a stale opposite
 // pending order sitting around — cancel it rather than risk an unintended flip.
@@ -274,9 +278,17 @@ strategy.exit("X-OR2-L", "OR2-Long", loss = stopDistancePts / syminfo.mintick, p
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
 strategy.exit("X-OR2-S", "OR2-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
-strategy.exit("X-C-L", "C-Long", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+// Continuous mode uses a hard stop (same risk-sizing anchor as everything
+// else) but a TRAILING exit instead of a fixed target, so real trends can
+// run well past trailActivateAtrMult instead of being capped early. This
+// is what makes a trend-following breakout system profitable — it does NOT
+// aim for >50% win rate; it aims for winners that are worth several stop
+// losses each. See README for why that's the deliberate tradeoff here.
+strategy.exit("X-C-L", "C-Long", loss = stopDistancePts / syminfo.mintick,
+     trail_points = trailActivatePts / syminfo.mintick, trail_offset = trailOffsetPts / syminfo.mintick,
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
-strategy.exit("X-C-S", "C-Short", loss = stopDistancePts / syminfo.mintick, profit = targetDistancePts / syminfo.mintick,
+strategy.exit("X-C-S", "C-Short", loss = stopDistancePts / syminfo.mintick,
+     trail_points = trailActivatePts / syminfo.mintick, trail_offset = trailOffsetPts / syminfo.mintick,
      alert_message = '{"action":"EXIT","symbol":"' + syminfo.ticker + '"}')
 
 // ---------------------------------------------------------------------------

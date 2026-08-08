@@ -79,6 +79,28 @@ in trading, from me or anyone else.
   cannot ethically or mechanically refuse to take a winning trade because
   of a payout consistency rule; it can only warn you.
 
+## Win rate vs. profitability (read this before judging the stats)
+
+Continuous mode no longer targets >50% win rate — that constraint was
+dropped deliberately. A fixed small target on a trend-following breakout
+system is the worst of both worlds: full-size stop losses on every false
+breakout (most of them), and winners capped before they can pay for those
+losses. Continuous mode now uses a **hard stop + trailing exit**
+(`trailActivateAtrMult`/`trailOffsetAtrMult`) instead of a fixed target, so
+a real trend can run 2x, 3x, 5x+ the stop distance instead of being capped
+at 0.55x ATR. Expect:
+
+- Win rate in the 30-40% range, sometimes lower. This is normal for
+  trend-following systems and not itself a sign something's broken.
+- Profitability driven by profit factor / average-win-to-average-loss
+  ratio, not win percentage. Judge Strategy Tester by **net profit,
+  profit factor, and max drawdown** — not by the win-rate number.
+- The **"Opening Range Breakout (2x/day)"** mode (fixed target, kept as a
+  toggle) is the one still aimed at >50% win rate, at the cost of firing
+  far less often. Pick one philosophy per backtest run — trying to hit
+  high win rate AND high frequency AND big trend-following payoffs
+  simultaneously isn't a parameter tune, it's three different strategies.
+
 ## Trade frequency vs. instrument choice
 
 If you're seeing very few trades even in Continuous mode, check the
